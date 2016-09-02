@@ -16,8 +16,8 @@ void setup() {
 }
 
 void loop() {
-  //echoGoForward(0);
-  daughterEcho();
+  echoGoForward(0);
+  //daughterEcho();
   //printCurrentPos();
 }
 
@@ -94,14 +94,19 @@ void echoGoForward(uint16_t speed)
         /** ninth bits not used */
         readPos |= (DAUGHTER_BOARD_SERIAL.read() & 0xFF) << 8;
 
+        
+
         /** echo current frame on both uart with forward direction */
-        uint16_t lFrame[6] = {256, readPos & 0xff, readPos >> 8 & 0xff, readPos & 0xff, readPos >> 8 & 0xff, 85};
+        uint16_t lFrame[6] = {258, readPos & 0xff, readPos >> 8 & 0xff, readPos & 0xff, readPos >> 8 & 0xff, 85};
+
+
+        readPos = 100;
         uint16_t rFrame[6] = {256, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, 85};
 
         for(uint8_t index = 0; index < 6; index++)
         {
-          DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(rFrame[index]);
-          DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(lFrame[index]); 
+          DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(lFrame[index]);
+          DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(rFrame[index]); 
         }
         
         if(readPos != currPos)
