@@ -97,10 +97,7 @@ void echoGoForward(uint16_t speed)
         
 
         /** echo current frame on both uart with forward direction */
-        uint16_t lFrame[6] = {258, readPos & 0xff, readPos >> 8 & 0xff, readPos & 0xff, readPos >> 8 & 0xff, 85};
-
-
-        readPos = 100;
+        uint16_t lFrame[6] = {256, readPos & 0xff, readPos >> 8 & 0xff, readPos & 0xff, readPos >> 8 & 0xff, 85};
         uint16_t rFrame[6] = {256, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, 85};
 
         for(uint8_t index = 0; index < 6; index++)
