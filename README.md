@@ -31,13 +31,13 @@ Interesting parts is :
 Daughterboard can be used either on right/left. So we only bought 1 daughterboard to decode Daughterboard / motherboard exchanged data.
 We connected the 2 motherboard / daughterboard connectors to a single motherboard.
 In this case when rotating motherboard, wheels are rotating in two different direction.
- <img src="https://raw.githubusercontent.com/OpHaCo/hover_bot/master/img/hover_bot_setup.jpg" width="800">
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hover_bot_setup.jpg" width="800">
 
 #### **Protocol**
 Probing a logic analyser on daughterboard 4 wire connectors gives some interesting info :
  * logic level = 3.3V
  * bit duration ~ 38.10µs => baud rate ~ 26300kbps
- <img src="https://raw.githubusercontent.com/OpHaCo/hover_bot/master/img/bit_duration.png" width="900">
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/bit_duration.png" width="900">
  * there is no clock provided on given lines => Async protocol 
  
 Is it a standard protocol? 
@@ -50,7 +50,7 @@ In order to get UART parameters :
 
 Here here decoded data setting correct parameters for UART analyzer in Salae Logic software :
 
- <img src="https://raw.githubusercontent.com/OpHaCo/hover_bot/master/img/uart_frame.png" width="900">
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/uart_frame.png" width="900">
 
 Do not move daughterboard, power motherboard and read decoded data. We can see :
  * redondant 256 integer : it is frame start => frame size = 6 9bits integers
