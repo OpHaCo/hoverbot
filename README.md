@@ -21,16 +21,16 @@ Hoverboard are chinese low cost products. Hacking it can give a meaningful platf
 
 ### **Components Analysis**
 
-Refer [ifixit](http://ifixit.org/blog/7821/swagway-teardown-hoverboards/) for a detailed analysis of hoverboard.
-Interesting parts is :
- * how do theses components interacts?
+Refer [ifixit](http://ifixit.org/blog/7821/swagway-teardown-hoverboards/) for a detailed analysis of hoverboard components.
+Interesting parts are :
+ * how do these components interact?
  * is it possible to control hoverboard externally?
 
 ### **Daughterboard / motherboard communication**
 
 Daughterboard can be used either on right/left. So we only bought 1 daughterboard to decode Daughterboard / motherboard exchanged data.
-We connected the 2 motherboard / daughterboard connectors to a single motherboard.
-In this case when rotating motherboard, wheels are rotating in two different direction.
+We connected a single daughterboard to left and left motherboard/daughterboard connectors.
+In this case when rotating daughterboard, wheels are rotating in two different directions.
  <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hover_bot_setup.jpg" width="800">
 
 #### **Protocol**
@@ -48,7 +48,7 @@ In order to get UART parameters :
 
 #### **Exchanged data**
 
-Here here decoded data setting correct parameters for UART analyzer in Salae Logic software :
+Here are decoded data with  UART analyzer in Salae Logic software :
 
  <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/uart_frame.png" width="900">
 
@@ -58,7 +58,7 @@ Do not move daughterboard, power motherboard and read decoded data. We can see :
 Now let's play with photodiode used in daughterboard contacts :
  * if we hide at least one of it  last frame integer = 85
  * otherwise last frame integer = 170
-If 170 value is sent to motherboard : wheels won't move (it means user to not have its feet on hoverboard)
+If 170 value is sent to motherboard : motors won't be driven (it means user to not have its feet on hoverboard) (it means user to not have its feet on hoverboard)
  
 4 remaining bytes must be decoded : two of these bytes repeats.
 Rotating daughterboard gives indication :
@@ -78,7 +78,7 @@ In order to control hoverboard we need an external MCU to :
 Different MCU can be used, we could use UART bitbanging libraries... But a nice solution is to use teensy 3.1/3.2 :
  * it runs @3.3V
  * [9 bit uart supported on Arduino Core] (https://www.pjrc.com/teensy/td_uart.html)
- * 3 avaialble hardware UART!
+ * 3 avaialble hardware UARTs!
 
 ### **software** 
 
