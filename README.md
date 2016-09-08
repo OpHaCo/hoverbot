@@ -5,7 +5,7 @@ Project has been done in Amiqual4Home Equipex Creativity Lab - https://amiqual4h
 ## **Description**
 
 Power your robot, chair, couch,  with an overboard! Gives anything two wheels drive!
-Hoverboard are chinese low cost products. Hacking it can give a meaningful platform to give a two wheel drive control to anything
+Hoverboard are chinese low cost products. Hacking it can give a meaningful platform to give a two wheels drive platform to anything
 
 ## **Prerequisities**
 
