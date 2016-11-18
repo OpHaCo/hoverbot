@@ -29,9 +29,9 @@ Interesting parts are :
 ### **Daughterboard / motherboard communication**
 
 Daughterboard can be used either on right/left. So we only bought 1 daughterboard to decode Daughterboard / motherboard exchanged data.
-We connected a single daughterboard to left and left motherboard/daughterboard connectors.
-In this case when rotating daughterboard, wheels are rotating in two different directions.
- <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hover_bot_setup.jpg" width="800">
+We connected the 2 motherboard / daughterboard connectors to a single motherboard.
+In this case when rotating motherboard, wheels are rotating in two different direction.
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hover_bot_setup.jpg" width="700">
 
 #### **Protocol**
 Probing a logic analyser on daughterboard 4 wire connectors gives some interesting info :
