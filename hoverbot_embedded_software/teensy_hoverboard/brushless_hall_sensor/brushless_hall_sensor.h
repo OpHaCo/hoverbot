@@ -21,7 +21,7 @@
  *****************************************************************************/
 #ifndef BRUSHLESS_HALL_SENSOR
 #define BRUSHLESS_HALL_SENSOR
- 
+
 /**************************************************************************
  * Include Files
  **************************************************************************/
@@ -44,10 +44,11 @@
  **************************************************************************/
 
 /**************************************************************************
- * Global Functions Declarations
+ *  Class Declarations
  **************************************************************************/
 class BrushlessHallSensor
 {
+  /** Public types */
   public :
     typedef enum{
       SENSOR_1,
@@ -55,21 +56,39 @@ class BrushlessHallSensor
       SENSOR_3,
       OUT_OF_ENUM_SENSOR
     }EHallSensor;
+
+    class Config
+    {
+      public :
+        uint8_t _u8_hall1Pin, _u8_hall2Pin, _u8_hall3Pin;
+        inline Config(void){}
+        inline Config(const uint8_t arg_u8_hall1Pin, 
+            const uint8_t arg_u8_hall2Pin, 
+            const uint8_t arg_u8_hall3Pin):
+          _u8_hall1Pin(arg_u8_hall1Pin),
+          _u8_hall2Pin(arg_u8_hall2Pin),
+          _u8_hall3Pin(arg_u8_hall3Pin){}
+    };
+
+    /** private members */  
   private :
+    Config _config;
     volatile int32_t _s32_hallTicks, _s32_periodHallTicks, _s32_lastPeriodHallTicks;
     volatile EHallSensor _e_lastHallSensed;
-    uint8_t _u8_hall1Pin, _u8_hall2Pin, _u8_hall3Pin;
     static BrushlessHallSensor* _instance;
     /** Number of ticks for a 2pi rotation */
     static const float NB_TICKS_ROTA;
-    
+
     /** Timer used to capture speed */
     IntervalTimer _captureTimer;
     /** Timer capture period */
     static const uint16_t TIMER_PERIOD_MS;
-	public :
-    BrushlessHallSensor(uint8_t arg_u8_hall1Pin, uint8_t arg_u8_hall2Pin, uint8_t arg_u8_hall3Pin);
-      
+
+    /** public methods */
+  public :
+    inline BrushlessHallSensor(void){}
+    BrushlessHallSensor(const Config&); 
+
     void startSensing(void);
     void stopSensing(void);
     /**
@@ -77,7 +96,8 @@ class BrushlessHallSensor
      */
     float getSpeed(void); 
     inline int32_t getTicks(void){return _s32_hallTicks;}
-      
+
+    /** private methods */  
   private :
     static void hall1It(void);
     static void hall2It(void);
