@@ -31,38 +31,105 @@ import sys
 import os
 import select
 from optparse import OptionParser
-from python_terminal import *
+from commander import *
+import struct
+from enum import IntEnum
 
 ''' Hoverboard commands '''
 class HoverboardCmd(Command):
-    def do_echo(self, *args):
-        '''echo - Just echos all arguments'''
-        return ' '.join(args)
-    def do_raise(self, *args):
-        raise Exception('Some Error')
+    class CmdId(IntEnum):
+        SET_SPEED = 0
+        POWER_ON  = 1
+        POWER_OFF = 2 
+        STOP      = 3
+    
+    def __init__(self,quit_commands=['q','quit','exit'], help_commands=['help','?', 'h'], serial = None):
+        Command.__init__(self, quit_commands, help_commands)
+        self.serial = serial
+        
+    def do_set_speed(self, *args):
+        usage = 'USAGE : set_speed speed1(float) speed2(float))' 
+        ''' parse left and right motor speed'''
+        if len(args) != 2 :
+            raise Exception('2 arguments must be given\n{}'.format(usage))
+        try :
+            speed1 = float(args[0])
+            speed2 = float(args[1])
+        except Exception as ValueError :
+           raise Exception('speed  must be a floating value\n{}'.format(usage))
+        ''' send command to hoverboard in LE'''
+        
+        try :
+            if self.serial and self.serial.is_open :
+                data_to_send = struct.pack('<Bff', HoverboardCmd.CmdId.SET_SPEED, speed1, speed2)
+                self.serial.write(data_to_send)
+            else :
+                raise Exception('cannot send command - uart not connected')
+        except Exception as e:
+            raise Exception('cannot write command to uart - {}'.format(e))
+        return '> SET SPEED TO (speed1={}, speed2={})'.format(speed1, speed2) 
+    
+    def do_power_on(self, *args):
+        usage = 'USAGE poweron'
+        try :
+            if self.serial and self.serial.is_open :
+                data_to_send = struct.pack('B', HoverboardCmd.CmdId.POWER_ON)
+                self.serial.write(data_to_send)
+            else :
+                raise Exception('cannot send command - uart not connected')
+        except Exception as e:
+            raise Exception('cannot write command to uart - {}'.format(e))
+        return '> POWER_ON'
 
+    def do_power_off(self, *args):
+        usage = 'USAGE poweroff'
+        try :
+            if self.serial and self.serial.is_open :
+                data_to_send = struct.pack('B', HoverboardCmd.CmdId.POWER_OFF)
+                self.serial.write(data_to_send)
+            else :
+                raise Exception('cannot send command - uart not connected')
+        except Exception as e:
+            raise Exception('cannot write command to uart - {}'.format(e))
+        return '> POWER_OFF'
+    
+    def do_stop(self, *args):
+        usage = 'USAGE stop'
+        try :
+            if self.serial and self.serial.is_open :
+                data_to_send = struct.pack('B', HoverboardCmd.CmdId.STOP)
+                self.serial.write(data_to_send)
+            else :
+                raise Exception('cannot send command - uart not connected')
+        except Exception as e:
+            raise Exception('cannot write command to uart - {}'.format(e))
+        return '> STOP'
+    
 ''' Hoverboard interfacing threw UART '''
 class HoverboardUART :
 
     def __init__(self, port):
         self.port = port
-        self.serial = None 
-        self.uartTerm = Commander("HOVERBOT term", cmd_cb=HoverboardCmd())
+        ''' uart will be connected after a connectUART() call  - pass a None port to 
+        not connect UART now '''
+        self.serial = serial.Serial(
+            port=None,
+            baudrate=115200,
+            parity=serial.PARITY_ODD,
+            stopbits=serial.STOPBITS_TWO,
+            bytesize=serial.SEVENBITS,
+            timeout=1
+        )
+        self.serial.port = self.port 
+        self.uart_term = Commander("HOVERBOT term", cmd_cb=HoverboardCmd(serial = self.serial))
+        self.is_last_newline = True 
         
     def connectUART(self, nbTries) :
-        print("try to open port {}...".format(self.port))
+        self.uart_term.output_line("try to open port {}...".format(self.port), 'normal')
 
         while(1) :
             try :
-                # configure the serial connections (the parameters differs on the device you are connecting to)
-                self.serial = serial.Serial(
-                    port=self.port,
-                    baudrate=115200,
-                    parity=serial.PARITY_ODD,
-                    stopbits=serial.STOPBITS_TWO,
-                    bytesize=serial.SEVENBITS,
-                    timeout=1
-                )
+                self.serial.open() 
                 break
 
             except Exception as e :
@@ -72,10 +139,9 @@ class HoverboardUART :
                     raise 
 
         if self.serial.isOpen() :
-            pass
-            #print("Port {} opened".format(self.port))
+            self.uart_term.output_line("Port {} opened".format(self.port), 'normal')
         else : 
-            sys.stderr.write("Port {} not opened - exit".format(self.port))
+            self.uart_term.output_line("Port {} not opened - exit".format(self.port), 'error')
             return 
 
         while(1) :
@@ -86,7 +152,7 @@ class HoverboardUART :
         self.captureUserCmds()
     
     def updateTerm(self):
-        self.uartTerm.loop() 
+        self.uart_term.loop() 
         
 
     def close(self) :
@@ -99,14 +165,25 @@ class HoverboardUART :
             # read all that is there or wait for one byte
             data = self.serial.read(self.serial.in_waiting or 1)
             if data:
-                #sys.stdout.write(data.decode('ascii')) 
-                self.uartTerm.output(data.decode('ascii'), 'green') 
-
+                text = data.decode("utf-8")
+                # Append char indicating some data have been received from hoverbot
+                if self.is_last_newline :
+                    text = '< ' + text 
+                if text[-1:] == '\n':
+                    self.is_last_newline = True
+                    # Insert char indicating some data have been received from hoverbot
+                    text = text[:-1].replace('\n', '\n< ') 
+                    text = text + '\n'
+                else :
+                    text = text.replace('\n', '\n< ') 
+                    self.is_last_newline = False
+                self.uart_term.output_text(text, 'green') 
+                 
         except OSError as e :
-            sys.stderr.write("Error in stream... try to reconnect\n")
+            self.uart_term.output_line("Error in stream... try to reconnect", 'error')
             if self.serial.isOpen :
                 self.serial.close()
-                self.connectUART(self.port, 1000)
+                self.connectUART(1000)
 
     def captureUserCmds(self) :
         return

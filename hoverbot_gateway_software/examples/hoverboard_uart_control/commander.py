@@ -56,7 +56,7 @@ class FocusMixin(object):
     def mouse_event(self, size, event, button, x, y, focus):
         if focus and hasattr(self, '_got_focus') and self._got_focus:
             self._got_focus()
-        return super(FocusMixin,self).mouse_event(size, event, button, x, y, focus)    
+        return super(FocusMixin,self).mouse_event(size, event, button, x, y, focus)      
     
 class ListView(FocusMixin, urwid.ListBox):
     def __init__(self, model, got_focus, max_size=None):
@@ -65,7 +65,7 @@ class ListView(FocusMixin, urwid.ListBox):
         self.max_size=max_size
         self._lock=threading.Lock()
         
-    def add(self,line):
+    def add_line(self,line):
         with self._lock:
             was_on_end=self.get_focus()[1] == len(self.body)-1
             if self.max_size and len(self.body)>self.max_size:
@@ -76,6 +76,25 @@ class ListView(FocusMixin, urwid.ListBox):
                 self.set_focus(last,'above')
         
     
+    def add_text(self,text):
+        with self._lock:
+            was_on_end=self.get_focus()[1] == len(self.body)-1
+            if self.max_size and len(self.body)>self.max_size:
+                del self.body[0]    
+            if len(self.body) > 0:
+                last_display_attrs = self.body[len(self.body) - 1].get_text()[1] 
+                has_style = isinstance (text, tuple)
+            # if style are different => append a new line    
+            if len(self.body) > 0 and ((len(last_display_attrs) > 0 and has_style and text[0] == self.body[len(self.body) - 1].get_text()[1][0][0]) or (len(last_display_attrs) == 0 and not has_style)):
+                updated_text = self.body[len(self.body) - 1].get_text()[0] + text[1]
+                #remove \r https://github.com/urwid/urwid/issues/209
+                updated_text = updated_text.replace("\r", "") 
+                self.body[len(self.body) -1].set_text((text[0], updated_text))
+            else : 
+                self.body.append(urwid.Text(text))
+            last=len(self.body)-1
+            if was_on_end:
+                self.set_focus(last,'above')
 
 class Input(FocusMixin, urwid.Edit):
     signals=['line_entered']
@@ -157,27 +176,35 @@ You can also asynchronously output messages with Commander.output('message') """
         if self._cmd:
             try:
                 res = self._cmd(line)
-            except Exception,e:
-                self.output('Error: %s'%e, 'error')
+            except Exception as e:
+                self.output_line('Error: %s'%e, 'error')
                 return
             if res==Commander.Exit:
                 raise urwid.ExitMainLoop()
             elif res:
-                self.output(str(res))
+                self.output_line(str(res))
         else:
             if line in ('q','quit','exit'):
                 raise urwid.ExitMainLoop()
             else:
-                self.output(line)
+                self.output_line(line)
     
-    def output(self, line, style=None):
+    def output_line(self, line, style=None):
         if style and style in self._output_styles:
                 line=(style,line) 
-        self.body.add(line)
+        self.body.add_line(line)
         #since output could be called asynchronously form other threads we need to refresh screen in these cases
         if self.eloop and self._eloop_thread != threading.current_thread():
             self.eloop.draw_screen()
-        
+       
+    ''' output given text to current line '''   
+    def output_text(self, text, style=None):
+        if style and style in self._output_styles:
+                text=(style,text) 
+        self.body.add_text(text)
+        #since output could be called asynchronously form other threads we need to refresh screen in these cases
+        if self.eloop and self._eloop_thread != threading.current_thread():
+            self.eloop.draw_screen()
         
     def _update_focus(self, focus):
         self._focus=focus
@@ -211,7 +238,7 @@ if __name__=='__main__':
     def run():
         while True:
             time.sleep(1)
-            c.output('Tick', 'green')
+            c.output_line('Tick', 'green')
     t=Thread(target=run)
     t.daemon=True
     t.start()
