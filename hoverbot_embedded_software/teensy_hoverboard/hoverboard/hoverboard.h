@@ -70,18 +70,18 @@ class Hoverboard
     {
       public :
         uint16_t _u16_powerPin;
-        BrushlessHallSensor::Config _motor1Conf;
-        BrushlessHallSensor::Config _motor2Conf;
+        BrushlessHallSensor::Config* _p_motor1Conf;
+        BrushlessHallSensor::Config* _p_motor2Conf;
 				HardwareSerial * _p_gyro1Serial, * _p_gyro2Serial;				
 
         inline Config(const uint16_t arg_u16_powerPin,
-            BrushlessHallSensor::Config& arg_motor1HallSensorConf,
-            BrushlessHallSensor::Config& arg_motor2HallSensorConf,
+            BrushlessHallSensor::Config* arg_p_motor1HallSensorConf,
+            BrushlessHallSensor::Config* arg_p_motor2HallSensorConf,
 						HardwareSerial& arg_gyro1Serial,
 						HardwareSerial& arg_gyro2Serial):
           _u16_powerPin(arg_u16_powerPin),
-          _motor1Conf(arg_motor1HallSensorConf),
-          _motor2Conf(arg_motor2HallSensorConf),
+          _p_motor1Conf(arg_p_motor1HallSensorConf),
+          _p_motor2Conf(arg_p_motor2HallSensorConf),
 					_p_gyro1Serial(&arg_gyro1Serial),
 					_p_gyro2Serial(&arg_gyro2Serial)
 				{};
@@ -89,7 +89,8 @@ class Hoverboard
 
     /** private members */  
   private :
-    /** Motor 1,2 hall sensors */
+    /** Optional - motor 1,2 hall sensors */
+    bool _has_motor1HallSensor,  _has_motor2HallSensor;
     BrushlessHallSensor _hallSensor1, _hallSensor2;
     /** Pin to control hoverboard power, calibration */
     const uint16_t _u16_powerPin; 
@@ -103,6 +104,8 @@ class Hoverboard
     int16_t _s16_calValue;
 		HardwareSerial * _p_gyro1Serial, * _p_gyro2Serial;				
     float _f_speed1, _f_speed2;
+    float _f_diffSpeed1, _f_diffSpeed2; 
+    float _f_commonSpeed;
     /** Factor to reach target speed - time to reach speed = 1/ramp_up_factor */ 
     float _f_rampUpFactor;
     
@@ -148,8 +151,21 @@ class Hoverboard
     /** private methods */  
   private :
     EHoverboardState getState(void);
-    void setSpeedSameRota(float arg_f_speed1, float arg_f_speed2);
+    void setCommonSpeed(float arg_f_speed1, float arg_f_speed2);
+    void setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2);
     static void timerIt(void);
+    
+    /** Motor 1 sensor Cbs */
+    static void motor1Hall1It(void);
+    static void motor1Hall2It(void);
+    static void motor1Hall3It(void);
+    static void motor1TimerIt(void);
+    
+    /** Motor 2 sensor Cbs */
+    static void motor2Hall1It(void);
+    static void motor2Hall2It(void);
+    static void motor2Hall3It(void);
+    static void motor2TimerIt(void);
 };
 
 #endif /* HOVERBOARD_H */
