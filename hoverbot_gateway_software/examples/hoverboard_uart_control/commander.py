@@ -148,12 +148,12 @@ You can also asynchronously output messages with Commander.output('message') """
               ('blue', urwid.LIGHT_BLUE, urwid.BLACK),
               ('magenta', urwid.DARK_MAGENTA, urwid.BLACK), ]
     
-    
-    def __init__(self, title, command_caption='Command:  (Tab to switch focus to upper frame, where you can scroll text)', cmd_cb=None, max_size=1000):
+    def __init__(self, title, input_edit=Input(), command_caption='Command:  (Tab to switch focus to upper frame, where you can scroll text)', cmd_cb=None, max_size=1000):
         self.header=urwid.Text(title)
         self.model=urwid.SimpleListWalker([])
         self.body=ListView(self.model, lambda: self._update_focus(False), max_size=max_size )
-        self.input=Input(lambda: self._update_focus(True))
+        input_edit._got_focus = lambda: self._update_focus(True)
+        self.input=input_edit
         foot=urwid.Pile([urwid.AttrMap(urwid.Text(command_caption), 'reversed'),
                         urwid.AttrMap(self.input,'normal')])
         urwid.Frame.__init__(self, 
@@ -166,7 +166,7 @@ You can also asynchronously output messages with Commander.output('message') """
         self._cmd=cmd_cb
         self._output_styles=[s[0] for s in self.PALLETE]
         self.eloop=None
-        
+    
     def loop(self, handle_mouse=False):
         self.eloop=urwid.MainLoop(self, self.PALLETE, handle_mouse=handle_mouse)
         self._eloop_thread=threading.current_thread()
