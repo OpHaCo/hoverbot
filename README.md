@@ -1,11 +1,36 @@
-# HOverBot
+# HOverBot : the most affordable smooth and silent two wheels drive control
+
+<img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hoverbot_dog.jpg" width="300">
+<img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hoverbot_trash.jpg" width="320">
 
 Project has been done in Amiqual4Home Equipex Creativity Lab - https://amiqual4home.inria.fr/
 
 ## **Description**
 
-Power your robot, chair, couch,  with an overboard! Gives anything two wheels drive!
-Hoverboard are chinese low cost products. Hacking it can give a meaningful platform to give a two wheels drive platform to anything
+With hoverbot, you can do some vehicle, chassis :
+ * supporting up to 264lbs (120kg). 
+ * moving silently thanks to two 350W brushless motors in wheels
+ * locally or remotely controlled, 
+ * at an unbeatable price buying some spare parts :
+    * Mother board - 55  eur
+    * 36V battery  - 100 eur
+    * two wheels   - 160 eur
+    * additional components - 40 eur
+    * **Total = 355 eur**
+ * or more cheaper :
+    * just buy an hoverboard and get these parts from it - 260eur
+    * additional components - 40eur
+    * **Total = 300eur**
+
+Hoverboard are chinese low cost products. Low cost spare parts gives meaningful two wheels drive platform.
+
+You don't have to be an electronic master to do it. To have motors working, you just have to connect hoverbot shield. You can either make this shield by yourself or you can get it from (TODO).
+
+With hoverbot you will be able to drive your : 
+* robot
+* chair
+* old dog
+* couch
 
 ## **Prerequisities**
 
@@ -14,7 +39,7 @@ Hoverboard are chinese low cost products. Hacking it can give a meaningful platf
 * [Two hoverboard motors] (http://gyro-service.com/moteur/19-moteur.html)
 * [Hoverboard mother board] (http://gyro-service.com/cirquit-carte-mere-smart-self-balancing-wheel/17-carte-mere.html)
 * [36V battery] (http://gyro-service.com/batteries-samsung-smart-balance-wheel-gyropode/18-battterie-22p-samsumg-ou-de-qualite-equivalente.html)
-* optionally [daughterboard] (http://gyro-service.com/accueil/23-plaquette-contacteur-semelle.html) to understand motherboard / daughterboard communication
+* [hoverbot shield](#hoverbot-shield) 
 * Arduino Teensy 3.1/3.2
 
 ## **Setup**
@@ -82,6 +107,32 @@ Different MCU can be used, we could use UART bitbanging libraries... But a nice 
 
 ### **software** 
 
+#### Prerequisities
+##### Enable 9-Bit UART on Teensy
+Edit :
+
+    your_arduino_core_folder/hardware/teensy/avr/cores/teensy3/HardwareSerial.h
+
+Uncomment :
+
+    #define SERIAL_9BIT_SUPPORT
+
+##### Add needed libraries
+Several libraries are provided in this repo : 
+ * hoverboard : hoverboard control / feddbacks
+ * brushless_hall_sensor
+ * logger 
+
+If you use arduino IDE, you must create symlinks/shortcuts from these libraries path to Arduino library folder :
+
+    ln -s your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/hoverboard arduino_user_path/libraries/
+    ln -s your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor arduino_user_path/libraries/
+    ln -s your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/logger arduino_user_path/libraries/
+
+### Arduino sketch
+
+    
+
 As we saw in our first tests, when same daughterboard is connected to two motherboards/daughterboard connectors :
  * wheels rotating direction is different. Hoverboard is rotating
 In this case same angular value on left foot and right foot is sent to motherboard.
@@ -100,18 +151,53 @@ But we cannot :
  * control speed of both wheels when it is rotating is same directions (not under load). **In this case, motors reach needed value but quickly speed up until max speed**
  
 We can suppose, closed loop algorithm on motherboard does not support forward / backward mooving when it is not under load.
- 
+
+## Interfaces
+### UART
+
+Hoverboard control over UART can be done running :
+
+    python3 your_folder/hoverbot/hoverbot_gateway_software/examples/hoverboard_uart_control/hoverboard_uart_control.py -p TEENSY_PORT
+    
+<img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hoverbot_uart.png" width="800">
+
+#### Supported commands :
+
+    power_on
+
+    power_off
+    
+    set_speed motor1_value motor2_value
+    
+    x // Manual keyboard control => hoverbot controlled using numeric pad
+
+### SPI
+### Wifi
+### BLE
+
 ## Commands
 TODO
 
 ### Control commands
 TODO
-
+###ROS
 ## Events
 TODO
+
+## Hoverbot shield
+### PCB design
+
+## Examples
+### Racing chair
+
+<img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/racing_chair.jpg" width="600">
+
+## Issues
 
 ## References
 * http://www.electronicspoint.com/threads/reverse-engineering-a-hoverboard-with-wheels-accelerometer.279098/
 * http://drewspewsmuse.blogspot.fr/2016/06/how-i-hacked-self-balancing-scooter.html
+* https://developer.mbed.org/users/Thomas_H/code/HoverboardTest/
+
 
 ## TODO
