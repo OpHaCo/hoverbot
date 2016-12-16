@@ -208,4 +208,12 @@ TODO
 * https://developer.mbed.org/users/Thomas_H/code/HoverboardTest/
 
 
-## TODO
+## Next steps
+
+* improve hoverboard control
+* continue cleaning (remove some unused attributes in hoverboard)
+* add PID : measure reliable speed from hall sensors
+* use all days a reliable racing chair
+* make hoverbot shield : deliver CAD
+* ROS compatible?
+* get error status
