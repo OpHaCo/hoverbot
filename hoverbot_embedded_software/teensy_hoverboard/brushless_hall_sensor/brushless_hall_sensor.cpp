@@ -41,7 +41,6 @@
 /**************************************************************************
  * Static Variables
  **************************************************************************/
-BrushlessHallSensor* BrushlessHallSensor::_instance = NULL;
 /** To customize depending on your hall sensors */
 const float BrushlessHallSensor::NB_TICKS_ROTA = 44.7;
 const uint16_t BrushlessHallSensor::TIMER_PERIOD_MS = 2500;
@@ -52,20 +51,23 @@ const uint16_t BrushlessHallSensor::TIMER_PERIOD_MS = 2500;
 /**************************************************************************
  * Local Functions Declarations
  **************************************************************************/
-
 /**************************************************************************
  * Public Functions Defintions
  **************************************************************************/
-BrushlessHallSensor::BrushlessHallSensor(const Config& arg_config):
-  _config(arg_config),
+
+BrushlessHallSensor::BrushlessHallSensor(void) :
+  _config(),
   _s32_hallTicks(0),
   _s32_periodHallTicks(0),
   _s32_lastPeriodHallTicks(0),
   _e_lastHallSensed(BrushlessHallSensor::OUT_OF_ENUM_SENSOR),
   _captureTimer()
 {
-  /** quick singleton ! */
-  BrushlessHallSensor::_instance = this;
+}
+
+BrushlessHallSensor::BrushlessHallSensor(const Config& arg_config):BrushlessHallSensor()
+{
+  _config = arg_config;
 }
 
 void BrushlessHallSensor::startSensing(void)
@@ -77,11 +79,12 @@ void BrushlessHallSensor::startSensing(void)
   pinMode(_config._u8_hall2Pin, INPUT_PULLUP);
   pinMode(_config._u8_hall3Pin, INPUT_PULLUP);
   
-  attachInterrupt(_config._u8_hall1Pin, BrushlessHallSensor::hall1It, RISING); 
-  attachInterrupt(_config._u8_hall2Pin, BrushlessHallSensor::hall2It, RISING); 
-  attachInterrupt(_config._u8_hall3Pin, BrushlessHallSensor::hall3It, RISING); 
   
-  _captureTimer.begin(BrushlessHallSensor::timerIt, BrushlessHallSensor::TIMER_PERIOD_MS*1000);
+  attachInterrupt(_config._u8_hall1Pin, _config._itCbs._pfn_hall1It, RISING); 
+  attachInterrupt(_config._u8_hall2Pin, _config._itCbs._pfn_hall2It, RISING); 
+  attachInterrupt(_config._u8_hall3Pin, _config._itCbs._pfn_hall3It, RISING); 
+  
+  _captureTimer.begin(_config._itCbs._pfn_timerIt, BrushlessHallSensor::TIMER_PERIOD_MS*1000);
   _s32_periodHallTicks = 0;
   _s32_lastPeriodHallTicks = 0;
 }
@@ -104,73 +107,67 @@ float BrushlessHallSensor::getSpeed(void)
  **************************************************************************/
 void BrushlessHallSensor::hall1It(void)
 {
-  detachInterrupt(_instance->_config._u8_hall1Pin);
-
   /** reject spikes */
-  if(digitalRead(_instance->_config._u8_hall1Pin) &&
-      ((digitalRead(_instance->_config._u8_hall2Pin) && !digitalRead(_instance->_config._u8_hall3Pin))
-       || (!digitalRead(_instance->_config._u8_hall2Pin) && digitalRead(_instance->_config._u8_hall3Pin))))
+  if(digitalRead(_config._u8_hall1Pin) &&
+      ((digitalRead(_config._u8_hall2Pin) && !digitalRead(_config._u8_hall3Pin))
+       || (!digitalRead(_config._u8_hall2Pin) && digitalRead(_config._u8_hall3Pin))))
   {
 
-    if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_3)
+    if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_3)
     {
-      _instance->_s32_hallTicks++;
+      _s32_hallTicks++;
     }
-    else if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_2)
+    else if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_2)
     {
-      _instance->_s32_hallTicks--;
+      _s32_hallTicks--;
     }
-    _instance->_e_lastHallSensed = BrushlessHallSensor::SENSOR_1;
+    _e_lastHallSensed = BrushlessHallSensor::SENSOR_1;
   }
-  attachInterrupt(_instance->_config._u8_hall1Pin, BrushlessHallSensor::hall1It, RISING); 
+  attachInterrupt(_config._u8_hall1Pin, _config._itCbs._pfn_hall1It, RISING); 
 }
 
 void BrushlessHallSensor::hall2It(void)
 {
-  detachInterrupt(_instance->_config._u8_hall2Pin);
-
   /** reject spikes */
-  if(digitalRead(_instance->_config._u8_hall2Pin) &&
-      ((digitalRead(_instance->_config._u8_hall1Pin) && !digitalRead(_instance->_config._u8_hall3Pin))
-       || (!digitalRead(_instance->_config._u8_hall1Pin) && digitalRead(_instance->_config._u8_hall3Pin))))
+  if(digitalRead(_config._u8_hall2Pin) &&
+      ((digitalRead(_config._u8_hall1Pin) && !digitalRead(_config._u8_hall3Pin))
+       || (!digitalRead(_config._u8_hall1Pin) && digitalRead(_config._u8_hall3Pin))))
   {
-    if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_1)
+    if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_1)
     {
-      _instance->_s32_hallTicks++;
+      _s32_hallTicks++;
     }
-    else if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_3)
+    else if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_3)
     {
-      _instance->_s32_hallTicks--;
+      _s32_hallTicks--;
     }
-    _instance->_e_lastHallSensed = BrushlessHallSensor::SENSOR_2;
+    _e_lastHallSensed = BrushlessHallSensor::SENSOR_2;
   }
-  attachInterrupt(_instance->_config._u8_hall2Pin, BrushlessHallSensor::hall2It, RISING); 
+  attachInterrupt(_config._u8_hall2Pin, _config._itCbs._pfn_hall2It, RISING); 
 }
 
 void BrushlessHallSensor::hall3It(void)
 {
-  detachInterrupt(_instance->_config._u8_hall3Pin);
-
   /** reject spikes */
-  if(digitalRead(_instance->_config._u8_hall3Pin) &&
-      ((digitalRead(_instance->_config._u8_hall1Pin) && !digitalRead(_instance->_config._u8_hall2Pin))
-       || (!digitalRead(_instance->_config._u8_hall1Pin) && digitalRead(_instance->_config._u8_hall2Pin))))
+  if(digitalRead(_config._u8_hall3Pin) &&
+      ((digitalRead(_config._u8_hall1Pin) && !digitalRead(_config._u8_hall2Pin))
+       || (!digitalRead(_config._u8_hall1Pin) && digitalRead(_config._u8_hall2Pin))))
   {
-    if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_2)
+    if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_2)
     {
-      _instance->_s32_hallTicks++;
+      _s32_hallTicks++;
     }
-    else if(_instance->_e_lastHallSensed == BrushlessHallSensor::SENSOR_1)
+    else if(_e_lastHallSensed == BrushlessHallSensor::SENSOR_1)
     {
-      _instance->_s32_hallTicks--;
+      _s32_hallTicks--;
     }
-    _instance->_e_lastHallSensed = BrushlessHallSensor::SENSOR_3;
+    _e_lastHallSensed = BrushlessHallSensor::SENSOR_3;
   }
-  attachInterrupt(_instance->_config._u8_hall3Pin, BrushlessHallSensor::hall3It, RISING); 
+  attachInterrupt(_config._u8_hall3Pin, _config._itCbs._pfn_hall3It, RISING); 
 }
 
 
 void BrushlessHallSensor::timerIt(void){
-  _instance->_s32_lastPeriodHallTicks = _instance->_s32_hallTicks - _instance->_s32_periodHallTicks;
-  _instance->_s32_periodHallTicks = _instance->_s32_hallTicks;
+  _s32_lastPeriodHallTicks = _s32_hallTicks - _s32_periodHallTicks;
+  _s32_periodHallTicks = _s32_hallTicks;
 }
