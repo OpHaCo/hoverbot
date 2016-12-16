@@ -1,10 +1,12 @@
 /******************************************************************************
  * 
- * @file    hoverboard_hack.h
+ * @file    hoverboard.h
  * @author  Rémi Pincent - INRIA
  * @date    30/11/2016
  *
  * @brief Hoverboard class. Gives control over your hoverboard.
+ *  Code must call idleControl() method regularly (<50ms period). 
+ *  Listener calls must be short < 10ms
  *
  * Project : hoverbot
  * Contact:  Rémi Pincent - remi.pincent@inria.fr
@@ -29,6 +31,8 @@
 #include <stdint.h>
 #include <Arduino.h>
 #include <brushless_hall_sensor.h>
+
+#include "hoverboard_listener.h"
 
 /**************************************************************************
  * Manifest Constants
@@ -63,7 +67,10 @@ class Hoverboard
       POWER_ON,
       POWERING_ON,
       POWERING_OFF,
+      IDLE, 
+      COMMON_SPEED
     }EHoverboardState;
+    
 
     /** Hoverboard configuration */
     class Config
@@ -86,6 +93,16 @@ class Hoverboard
 					_p_gyro2Serial(&arg_gyro2Serial)
 				{};
     };
+    
+  /** Private types */
+  private :
+    
+    /** Events stored in bit field - max nb events = 32*/
+    typedef enum {
+      POWERED_ON_EVENT   =   1 << 0,
+      POWERED_OFF_EVENT    =   1 << 1,
+      SPEED_APPLIED_EVENT =   1 << 2
+    }EEvent;
 
     /** private members */  
   private :
@@ -104,10 +121,15 @@ class Hoverboard
     int16_t _s16_calValue;
 		HardwareSerial * _p_gyro1Serial, * _p_gyro2Serial;				
     float _f_speed1, _f_speed2;
+    float _f_sensorSpeed1, _f_sensorSpeed2; 
     float _f_diffSpeed1, _f_diffSpeed2; 
+    int16_t _s16_speedRampUp; 
     float _f_commonSpeed;
     /** Factor to reach target speed - time to reach speed = 1/ramp_up_factor */ 
     float _f_rampUpFactor;
+    /** Pending events pushed under IT : bit field - max events = 32 */
+    uint32_t _u32_events; 
+    HoverboardListener* _p_listener; 
     
     static Hoverboard* _instance; 
     
@@ -124,13 +146,16 @@ class Hoverboard
   public :
     Hoverboard(const Hoverboard::Config&);
 		EHoverboardErr init(void);
+    /** 1 single listener */
+    void registerListener(HoverboardListener*);
+    void unregisterListener(void);
     EHoverboardErr powerOn(void);
     EHoverboardErr powerOnAsync(void);
     EHoverboardErr powerOff(void);
     EHoverboardErr powerOffAsync(void);
 
     /** Set speed for motors  */ 
-    EHoverboardErr setSpeed(float arg_f_speed1, float arg_f_speed2);
+    EHoverboardErr setSpeedAsync(float arg_f_speed1, float arg_f_speed2);
     
     /**
      * Stop any control 
@@ -142,8 +167,6 @@ class Hoverboard
      * will enter error mode */
     void idleControl(void); 
 
-    EHoverboardErr calibrate(void);
-
 		/** TODO get target range  - make it private*/
     void simulateGyro1(int16_t arg_s16_target);
     void simulateGyro2(int16_t arg_s16_target);
@@ -151,7 +174,7 @@ class Hoverboard
     /** private methods */  
   private :
     EHoverboardState getState(void);
-    void setCommonSpeed(float arg_f_speed1, float arg_f_speed2);
+    void setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2);
     void setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2);
     static void timerIt(void);
     

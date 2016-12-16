@@ -1,190 +1,271 @@
+/******************************************************************************
+ * @file    hoverboard sketch
+ * @author  Rémi Pincent - INRIA
+ * @date    28/11/2016
+ *
+ * @brief Hoverboard sketch example to control hoverboard.
+ *  
+ * Project : hoverbot
+ * Contact:  Rémi Pincent - remi.pincent@inria.fr
+ *
+ * Revision History:
+ * https://github.com/OpHaCo/hoverbot.git
+ * 
+ * LICENSE :
+ * hoverbot (c) by Rémi Pincent
+ * project_name is licensed under a
+ * Creative Commons Attribution-NonCommercial 3.0 Unported License.
+ *
+ * You should have received a copy of the license along with this
+ * work.  If not, see <http://creativecommons.org/licenses/by-nc/3.0/>.
+ *****************************************************************************/
+
+/**************************************************************************
+ * Include Files
+ **************************************************************************/
+#include <logger_config.h>
+#include <hoverboard.h>
+#include <brushless_hall_sensor.h>
+
+/**************************************************************************
+ * Manifest Constants
+ **************************************************************************/
+#define LOG_SPEED 500000
+#define LOG_SERIAL Serial
+#define MAX_CMD_LENGTH 0xFFU
+/**************************************************************************
+ * Type Definitions
+ **************************************************************************/
+/*****************************************
+ * CONTROL cmd format
+ *  __________________________________
+ * |       |             |            |
+ * |CMD_ID | CMD_PARAMS  | TODO CRC   |
+ * |_______|_____________|____________|
+ * 
+ ****************************************/
+ 
+typedef enum
+{
+  SET_SPEED = 0, /* ARGS : SPEED1 (short LE) - SPEED2 (short LE) */
+  POWER_ON     = 1,
+  POWER_OFF    = 2,
+  STOP         = 3
+}EControlCmds;
+
+typedef enum
+{
+  ACK          = 0,
+  SPEED_STATUS = 1
+}EFeedbackCmds;
+
+typedef enum
+{
+  ACK_OK        = 0, 
+  ACK_BAD_STATE = 1
+}ECmdAckType;
+
+/**
+ * Class that listen hoverboard commands over UART to control it.
+ */
+class HoverboardListenerExample : public HoverboardListener
+{
+  public:
+    HoverboardListenerExample(Hoverboard* );
+    void init(void);
+    void calibrateHoverboard(void);
+    void onSpeedChanged(float arg_f_motor1Speed, float arg_f_motor2Speed);
+    void onSpeedApplied(void);
+    void onPowerOn(void);
+    void onPowerOff(void);
+    void pollCmd(void);
+    void sendCmd(EFeedbackCmds arg_e_cmdType, uint8_t arg_au8_cmd[], uint8_t arg_u8_cmdLength);
+    
+  private:
+    void waitKey(uint8_t arg_u8_key);
+    void handleCommand(uint8_t arg_u8_cmd[], uint16_t arg_u16_cmdLength);
+
+  private:
+    Hoverboard* _p_hoverboard;
+};
+
+/**************************************************************************
+ * Static variables definitions
+ **************************************************************************/
 static int16_t currPos = 0;
+static uint8_t _au8_rcvCmd[MAX_CMD_LENGTH] = {0};
 
-#define LOG_SERIAL                        Serial
-#define DAUGHTER_BOARD_SERIAL             Serial2
-#define DAUGHTER_BOARD_SERIAL_SIM_L       Serial1
-#define DAUGHTER_BOARD_SERIAL_SIM_R       Serial3
+/** ItCBS will be filled by hoverboard */
+static BrushlessHallSensor::ItCbs itCbs;
 
-static uint16_t _calValue = 0;
-static float _integralVal = 0;
+/** Hall sensor 1 - Give pin here */
+static BrushlessHallSensor::Config _hallSensorConf(17, 18, 19, itCbs);
 
+static Hoverboard::Config _hoverboardConf(20, 
+  &_hallSensorConf,
+  NULL,
+  Serial1,
+  Serial3);
+
+static Hoverboard _hoverboard(_hoverboardConf);
+static HoverboardListenerExample _hoverboardListenerExample(&_hoverboard);
+/**************************************************************************
+ * Global functions Definitions
+ **************************************************************************/
 void setup() {
-   LOG_SERIAL.begin(115200);
-   
-   DAUGHTER_BOARD_SERIAL.begin (26300, SERIAL_9N1);        // 9 bits mode
-   DAUGHTER_BOARD_SERIAL_SIM_L.begin (26300, SERIAL_9N1);  // 9 bits mode
-   DAUGHTER_BOARD_SERIAL_SIM_R.begin (26300, SERIAL_9N1);  // 9 bits mode
-   
-   LOG_SERIAL.println("start");
+   LOG_SERIAL.begin(500000);
+   LOG_INIT_STREAM(LOG_LEVEL, &LOG_SERIAL);
+   /** Wait 1s to get setup logs */
+   delay(1000);
+   LOG_INFO_LN("starting hoverboard hack...");
+   _hoverboard.init();
+   _hoverboardListenerExample.init();
 }
 
 void loop() {
-  uint16_t targetSpeed = 200;
-  Serial.print("Applying speed of ");
-  Serial.println(targetSpeed);
-  setSpeedTarget(targetSpeed);
-
-  uint32_t startTime = millis();
-
-  Serial.println("Apply idle control");
-  /** keep speed during 10s */
-  while(millis() - startTime < 10000)
-    idleControl();
-
-  Serial.println("stop");
-  setSpeedTarget(-targetSpeed);
-
-  Serial.println("Apply idle control");
-  startTime = millis();
-  /** Stopped during 1s */
-  while(millis() - startTime < 1000)
-    idleControl();
-}
-
-/** 
- *  echo value read from a single daughterboard to 
- *  motherboard left and right UART
- */
-void daughterEcho(void)
-{
-  if (DAUGHTER_BOARD_SERIAL.available())
-  {
-    uint16_t data = DAUGHTER_BOARD_SERIAL.read();
-    DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(data);
-    DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(data);
-  }
-}
-
-/** 
- *  Read current position from a single daughterboard
- */
-void printCurrentPos(void)
-{
-    if (DAUGHTER_BOARD_SERIAL.available()) {
-      int16_t readPos = 0;
-
-      /** begin of frame */
-      if(DAUGHTER_BOARD_SERIAL.read() == 256)
-      { 
-        /** get angle LSB (8 bits) */
-        while (!DAUGHTER_BOARD_SERIAL.available()){};
-        /** ninth bits not used */
-        readPos |= DAUGHTER_BOARD_SERIAL.read() & 0xFF;
-
-        /** get angle MSB (8 bits) */
-        while (!DAUGHTER_BOARD_SERIAL.available()){};
-        /** ninth bits not used */
-        readPos |= (DAUGHTER_BOARD_SERIAL.read() & 0xFF) << 8;
-        
-        if(readPos != currPos)
-        {
-          currPos = readPos;
-          LOG_SERIAL.println(readPos);
-        }
-      }
-      else
-      {
-      }
-  }
-  else
-  {
-    //LOG_SERIAL.println("nothing to read");
-  }
-}
-
-void stop(int16_t tar)
-{
-  LOG_SERIAL.print(millis()); 
-  LOG_SERIAL.print(": integral ");
-  LOG_SERIAL.println(_integralVal);
-
-  /** TODO */
-}
-
-/** Keep current speed */
-void idleControl(void)
-{
-  uint16_t lFrame[6] = {256, _calValue & 0xff, _calValue >> 8 & 0xff, _calValue & 0xff, _calValue >> 8 & 0xff, 85};
-  uint16_t rFrame[6] = {256, (-_calValue) & 0xff, (-_calValue) >> 8 & 0xff, (-_calValue) & 0xff, (-_calValue) >> 8 & 0xff, 85};
+  _hoverboard.idleControl();
   
-  for(uint8_t index = 0; index < 6; index++)
+  _hoverboardListenerExample.pollCmd();
+}
+
+/**************************************************************************
+ * HoverboardListenerExample Definitions
+ **************************************************************************/
+
+HoverboardListenerExample::HoverboardListenerExample(Hoverboard* arg_p_hoverboardExample)
+{
+  _p_hoverboard = arg_p_hoverboardExample;
+}
+
+void HoverboardListenerExample::init(void)
+{
+  _p_hoverboard->registerListener(this);
+}
+
+void HoverboardListenerExample::onSpeedChanged(float arg_f_motor1Speed, float arg_f_motor2Speed)
+{
+  LOG_INFO_LN("New speed (%f, %f)", arg_f_motor1Speed, arg_f_motor2Speed);   
+}
+
+void HoverboardListenerExample::onSpeedApplied(void)
+{
+  LOG_INFO_LN("SPEED_APPLIED"); 
+}
+
+void HoverboardListenerExample::onPowerOn(void)
+{
+  LOG_INFO_LN("POWERED_ON"); 
+}
+
+void HoverboardListenerExample::onPowerOff(void)
+{
+  LOG_INFO_LN("POWERED_OFF"); 
+}
+
+void HoverboardListenerExample::waitKey(uint8_t arg_u8_key)
+{
+  while(1) 
   {
-    DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(rFrame[index]);
-    DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(lFrame[index]); 
+    _p_hoverboard->idleControl();
+    if(LOG_SERIAL.available() && LOG_SERIAL.read() == arg_u8_key)break;
   }
 }
 
-
-/** 
- * Integral control of speed
+/**
+ * Manual calibration : user must refer instructions on UART
  */
-void setSpeedTarget(int16_t speed)
-{  
-  static const float RAMP_UP_FACTOR = 0.1;
+void HoverboardListenerExample::calibrateHoverboard(void)
+{
+  LOG_INFO_LN("Hoverboard calibration");
+  LOG_INFO_LN("Power off hoverboard - press enter when done");
+  waitKey('\r');
 
-  uint16_t  speedRampUp = (speed*RAMP_UP_FACTOR);      
-  uint16_t lFrame[6] = {256, speedRampUp & 0xff, speedRampUp >> 8 & 0xff, speedRampUp & 0xff, speedRampUp >> 8 & 0xff, 85};
-  uint16_t rFrame[6] = {256, (-speedRampUp) & 0xff, (-speedRampUp) >> 8 & 0xff, (-speedRampUp) & 0xff, (-speedRampUp) >> 8 & 0xff, 85};
+  LOG_INFO_LN("Power on hoverboard - press enter when done");
+  waitKey('\r');
   
-  uint32_t timeStart = millis();
-  while((millis() - timeStart) < (1/RAMP_UP_FACTOR)*1000)
+  LOG_INFO_LN("Press hoverboard button during a time given in hoverboard manual - press enter when done");
+  waitKey('\r');
+  
+  LOG_INFO_LN("Calibrating...");
+   
+  /** 5s calibration */
+  uint32_t loc_u32_time = millis();
+  while(millis() - loc_u32_time < 7000)
   {
-    for(uint8_t index = 0; index < 6; index++)
+    _p_hoverboard->idleControl();
+  }
+  LOG_INFO_LN("Calibration done - press hoverboard button during a time given in hoverboard manual to exit calibration - press enter when done");
+  waitKey('\r');
+}
+
+void HoverboardListenerExample::pollCmd(void)
+{
+  uint16_t loc_u16_cmdLength = 0;
+  while(LOG_SERIAL.available())
+  {
+    if(loc_u16_cmdLength > MAX_CMD_LENGTH)
     {
-      DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(rFrame[index]);
-      DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(lFrame[index]); 
+       LOG_ERROR("Invalid command length");
+       return;
     }
+    _au8_rcvCmd[loc_u16_cmdLength++] = LOG_SERIAL.read();
   }
-  _integralVal = (millis() - timeStart)*speedRampUp;
+
+  if(loc_u16_cmdLength > 0)
+  {
+    handleCommand(_au8_rcvCmd, loc_u16_cmdLength);
+  }
 }
 
-/** 
- *  Read current position from a single daughterboard and 
- *  control both uard to go forward
- */
-void echoGoForward(uint16_t speed)
+void HoverboardListenerExample::sendCmd(EFeedbackCmds arg_e_cmdType, uint8_t arg_au8_cmd[], uint8_t arg_u8_cmdLength)
 {
-    if (DAUGHTER_BOARD_SERIAL.available()) {
-      int16_t readPos = 0;
+  //TODO
+}
 
-      /** begin of frame */
-      if(DAUGHTER_BOARD_SERIAL.read() == 256)
-      { 
-        /** get angle LSB (8 bits) */
-        while (!DAUGHTER_BOARD_SERIAL.available()){};
-        /** ninth bits not used */
-        readPos |= DAUGHTER_BOARD_SERIAL.read() & 0xFF;
+void HoverboardListenerExample::handleCommand(uint8_t arg_u8_cmd[], uint16_t arg_u16_cmdLength)
+{
+  uint16_t targetSpeed = 200;  
+  if(arg_u8_cmd[0] == POWER_ON && arg_u16_cmdLength == 1)
+  {
+    LOG_INFO_LN("POWER_ON");
+    _p_hoverboard->powerOn();
+  }
+  else if(arg_u8_cmd[0] == POWER_OFF && arg_u16_cmdLength == 1)
+  {
+    LOG_INFO_LN("POWER_OFF");
+    _p_hoverboard->powerOff();
+  }
+  else if(arg_u8_cmd[0] == SET_SPEED && arg_u16_cmdLength == 9)
+  {
+    /** Data in little endian */
+    float _speed1, _speed2;
+    uint32_t temp_val = arg_u8_cmd[1] | 
+      arg_u8_cmd[2] << 8  |
+      arg_u8_cmd[3] << 16 |
+      arg_u8_cmd[4] << 24;
+      
+    _speed1 = *(float*)(&temp_val);
+    
+    temp_val = arg_u8_cmd[5] | 
+      arg_u8_cmd[6] << 8  |
+      arg_u8_cmd[7] << 16 |
+      arg_u8_cmd[8] << 24;
 
-        /** get angle MSB (8 bits) */
-        while (!DAUGHTER_BOARD_SERIAL.available()){};
-        /** ninth bits not used */
-        readPos |= (DAUGHTER_BOARD_SERIAL.read() & 0xFF) << 8;
+    _speed2 = *(float*)(&temp_val);
 
-        
-        
-        /** echo current frame on both uart with forward direction */
-        uint16_t lFrame[6] = {256, readPos & 0xff, readPos >> 8 & 0xff, readPos & 0xff, readPos >> 8 & 0xff, 85};
-        //readPos = 10;
-        uint16_t rFrame[6] = {256, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, (-readPos) & 0xff, (-readPos) >> 8 & 0xff, 85};
-
-        for(uint8_t index = 0; index < 6; index++)
-        {
-          DAUGHTER_BOARD_SERIAL_SIM_R.write9bit(rFrame[index]);
-          DAUGHTER_BOARD_SERIAL_SIM_L.write9bit(lFrame[index]); 
-        }
-        
-        if(readPos != currPos)
-        {
-          currPos = readPos;
-          LOG_SERIAL.println(readPos);
-        }
-      }
-      else
-      {
-      }
+    LOG_INFO_LN("SET_SPEED TO (%f, %f)",
+      _speed1,
+      _speed2);
+    _p_hoverboard->setSpeedAsync(_speed1, _speed2);
+  }
+  else if(arg_u8_cmd[0] == STOP && arg_u16_cmdLength == 1)
+  {
+    LOG_INFO_LN("STOP TODO");
   }
   else
   {
-    //LOG_SERIAL.println("nothing to read");
-  }  
+    LOG_INFO_LN("Command %d of length %d not handled",
+      arg_u8_cmd[0],
+      arg_u16_cmdLength);
+  }
 }

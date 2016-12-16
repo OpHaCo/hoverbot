@@ -36,7 +36,9 @@
  **************************************************************************/
 #include "hoverboard.h"
 
+#include <logger_config.h>
 #include <IntervalTimer.h>
+#include <logger.h>
 
 /**************************************************************************
  * Manifest Constants
@@ -61,8 +63,6 @@ Hoverboard* Hoverboard::_instance = NULL;
  * Public Methods Definitions
  **************************************************************************/
 Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
-  _hallSensor1(arg_config._motor1Conf),
-  _hallSensor2(arg_config._motor2Conf),
   _u16_powerPin(arg_config._u16_powerPin),
   _timer(),
   _e_state(POWER_OFF),
@@ -71,8 +71,41 @@ Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
 	_p_gyro2Serial (arg_config._p_gyro2Serial),
   _f_speed1(0.0),
   _f_speed2(0.0),
-  _f_rampUpFactor(0.3)
+  _f_sensorSpeed1(0.0), 
+  _f_sensorSpeed2(0.0), 
+  _f_diffSpeed1(0.0),
+  _f_diffSpeed2(0.0),
+  _s16_speedRampUp(0),
+  _f_commonSpeed(0.0), 
+  _f_rampUpFactor(0.3),
+  _p_listener(NULL),
+  _u32_events(0)
 {
+  if(arg_config._p_motor1Conf)
+  {
+    arg_config._p_motor1Conf->_itCbs._pfn_hall1It = Hoverboard::motor1Hall1It;
+    arg_config._p_motor1Conf->_itCbs._pfn_hall2It = Hoverboard::motor1Hall2It;
+    arg_config._p_motor1Conf->_itCbs._pfn_hall3It = Hoverboard::motor1Hall3It;
+    arg_config._p_motor1Conf->_itCbs._pfn_timerIt = Hoverboard::motor1TimerIt;
+    _hallSensor1 = BrushlessHallSensor(*arg_config._p_motor1Conf);
+    _has_motor1HallSensor = true;
+  }
+  else
+  {
+    /** Do not use sensor */
+    _has_motor1HallSensor = false;
+  }
+  
+  if(arg_config._p_motor2Conf)
+  {
+    _hallSensor1 = BrushlessHallSensor(*arg_config._p_motor2Conf);
+    _has_motor1HallSensor = true;
+  }
+  else
+  {
+    /** Do not use sensor */
+    _has_motor2HallSensor = false;
+  }
   _instance = this;
 }  
   
@@ -83,10 +116,33 @@ Hoverboard::EHoverboardErr Hoverboard::init(void)
 
   pinMode(_u16_powerPin, OUTPUT);
   powerOff(); 
-
+  
+  /** Start hall sensing */
+  if(_has_motor1HallSensor)
+  {
+    _hallSensor1.startSensing();
+  }
+  if(_has_motor2HallSensor)
+  {
+    _hallSensor2.startSensing();
+  }
+  
 	return NO_ERROR;
 }
   
+
+void Hoverboard::registerListener(HoverboardListener* arg_p_listener)
+{
+  ASSERT(_p_listener == NULL);
+  _p_listener = arg_p_listener;
+}
+
+void Hoverboard::unregisterListener(void)
+{
+  ASSERT(_p_listener != NULL);
+  _p_listener = NULL;
+}
+
 Hoverboard::EHoverboardErr Hoverboard::powerOn(void)
 {
   powerOnAsync();
@@ -102,6 +158,12 @@ Hoverboard::EHoverboardErr Hoverboard::powerOnAsync(void)
 {
   if(_e_state != POWER_ON || _e_state != POWERING_ON)
   {
+    _f_speed1 = 0.0;
+    _f_speed2 = 0.0;
+    _f_diffSpeed1 = 0.0;
+    _f_diffSpeed2 = 0.0;
+    _f_commonSpeed = 0.0;
+    
     _e_state = POWERING_ON;
     digitalWrite(_u16_powerPin, HIGH);
     _timer.begin(Hoverboard::timerIt, Hoverboard::SHORT_PRESS_DUR_MS*1000); 
@@ -125,7 +187,11 @@ Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
   //TODO check status 
   if(_e_state != POWER_OFF || _e_state != POWERING_OFF)
   {
-		Serial.println("powering off");
+    _f_speed1 = 0.0;
+    _f_speed2 = 0.0;
+    _f_diffSpeed1 = 0.0;
+    _f_diffSpeed2 = 0.0;
+    _f_commonSpeed = 0.0;
     _e_state = POWERING_OFF;
     digitalWrite(_u16_powerPin, HIGH);
     _timer.begin(Hoverboard::timerIt, Hoverboard::SHORT_PRESS_DUR_MS*1000); 
@@ -133,29 +199,105 @@ Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
   return NO_ERROR; 
 }
 
-Hoverboard::EHoverboardErr Hoverboard::setSpeed(float arg_f_speed1, float arg_f_speed2)
+Hoverboard::EHoverboardErr Hoverboard::setSpeedAsync(float arg_f_speed1, float arg_f_speed2)
 {
-  /** Are both motors rotating in same direction ? */
-  if((arg_f_speed1 >= 0 && arg_f_speed2 >= 0) || (arg_f_speed1 < 0 && arg_f_speed2 < 0)) 
+  if(_e_state == IDLE)
   {
-    setSpeedSameRota(arg_f_speed1, arg_f_speed2); 
-  } 
-  else /** Motors do not rotate in same direction */
-  {
+    setCommonSpeedAsync(arg_f_speed1, arg_f_speed2); 
+    setDifferentialSpeed(arg_f_speed1, arg_f_speed2);
+    _f_speed1 = arg_f_speed1; 
+    _f_speed2 = arg_f_speed2; 
   }
-  _f_speed1 = arg_f_speed1; 
-  _f_speed2 = arg_f_speed2; 
+  else
+  {
+    LOG_ERROR("setSpeed - bad state %d", _e_state);
+  }
 } 
     
 Hoverboard::EHoverboardErr Hoverboard::stop(void)
 {
+  
 }
 
 void Hoverboard::idleControl(void)
 {
-  /** Idle control => apply calibration value when motors rotate same direction */
-  simulateGyro1(_s16_calValue);
-  simulateGyro2(-_s16_calValue);
+  bool loc_b_notify = false;
+  float loc_f_newSpeed = 0.0;
+  
+  if(_e_state == COMMON_SPEED)
+  {
+    /** Apply common speed during a duration depending on ramp up factor */
+    /** Same rota direction => refer README.md - Gyro simualated target must from different
+     * signum */
+    simulateGyro1(_s16_speedRampUp);
+    simulateGyro2(-_s16_speedRampUp);
+    
+  }
+  else if(_e_state != POWER_OFF)
+  {
+    _e_state = IDLE;
+    /** Idle control => apply calibration value when motors rotate same direction */
+    simulateGyro1(_f_diffSpeed1);
+    simulateGyro2(_f_diffSpeed2);
+  } 
+   
+  
+  /** Read speed from sensors */ 
+  if(_has_motor1HallSensor)
+  {
+     loc_f_newSpeed =_hallSensor1.getSpeed();
+    if(_f_sensorSpeed1 != loc_f_newSpeed)
+    { 
+      _f_sensorSpeed1 = loc_f_newSpeed;
+      loc_b_notify = true;
+    } 
+  }
+  
+  if(_has_motor2HallSensor)
+  {
+     loc_f_newSpeed =_hallSensor2.getSpeed();
+    if(_f_sensorSpeed2 != loc_f_newSpeed)
+    { 
+      _f_sensorSpeed2 = loc_f_newSpeed;
+      loc_b_notify = true;
+    } 
+  }
+  
+  if(_p_listener && loc_b_notify)
+  {
+		_p_listener->onSpeedChanged(_f_sensorSpeed1, _f_sensorSpeed2);
+	}
+
+  /** Pop pending events (pushed under IT) */
+  if(_u32_events)
+  {
+    if(POWERED_ON_EVENT & _u32_events)
+    {
+      _u32_events &= ~POWERED_ON_EVENT;
+      if(_p_listener)
+      {
+        _p_listener->onPowerOn(); 
+      }
+    }
+
+    if(POWERED_OFF_EVENT & _u32_events)
+    {
+      _u32_events &= ~POWERED_OFF_EVENT;
+      if(_p_listener)
+      {
+        _p_listener->onPowerOff(); 
+      }
+    }
+
+    if(SPEED_APPLIED_EVENT & _u32_events)
+    {
+      _u32_events &= ~SPEED_APPLIED_EVENT;
+      if(_p_listener)
+      {
+        _p_listener->onSpeedApplied(); 
+      }
+    }
+  }
 }
 /**************************************************************************
  * Private Methods Definitions
@@ -205,24 +347,84 @@ void Hoverboard::simulateGyro2(int16_t arg_s16_target)
 * control from daugtherboards gyroscope data. In order to keep a clean 
 * control, we must simulate an integral control on simulated gyros/
 */ 
-void Hoverboard::setSpeedSameRota(float arg_f_speed1, float arg_f_speed2)
+void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2)
 {
-  int16_t  loc_s16_speedRampUp1 = (arg_f_speed1 > 0) ? (arg_f_speed1 - _f_speed1)*_f_rampUpFactor : -(arg_f_speed1 - _f_speed1)*_f_rampUpFactor;      
-  int16_t  loc_s16_speedRampUp2 = (arg_f_speed2 > 0) ? (arg_f_speed2 - _f_speed2)*_f_rampUpFactor : -(arg_f_speed2 - _f_speed2)*_f_rampUpFactor;      
+  float loc_f_commonSpeedDiff = 0.0;
+  float loc_f_commonSpeed = 0.0;
+  
+  _s16_speedRampUp = 0; 
 
-  Serial.println(arg_f_speed1);
-  Serial.println(arg_f_speed2);
-  Serial.println(loc_s16_speedRampUp1);
-  Serial.println(loc_s16_speedRampUp2);
-  uint32_t loc_u32_timeStart = millis();
-  while((millis() - loc_u32_timeStart) < (1/_f_rampUpFactor)*1000)
+  if(arg_f_speed1 >= 0 && arg_f_speed2 >= 0)
   {
-    /** Same rota direction => refer README.md - Gyro simualated target must from different
-     * signum */
-    simulateGyro1(loc_s16_speedRampUp1);
-    simulateGyro2(-loc_s16_speedRampUp2);
+    loc_f_commonSpeed = fmin(arg_f_speed1, arg_f_speed2);
+  }
+  else if(arg_f_speed1 < 0 && arg_f_speed2 < 0)
+  {
+    loc_f_commonSpeed = fmax(arg_f_speed1, arg_f_speed2);
+  }
+  else
+  {
+    /** No common speed */
+    return;
+  }
+  
+  loc_f_commonSpeedDiff = loc_f_commonSpeed - _f_commonSpeed;
+  if(loc_f_commonSpeedDiff == 0)
+  {
+    _u32_events |= SPEED_APPLIED_EVENT;
+    LOG_DEBUG_LN("Same common speed");
+  }
+  else
+  {
+    _s16_speedRampUp =  loc_f_commonSpeedDiff*_f_rampUpFactor;      
+    
+    LOG_DEBUG_LN("Common speed : target(%f %f) actual(%f) new(%f) ramp(%d)",
+        arg_f_speed1,
+        arg_f_speed2,
+        _f_commonSpeed,
+        loc_f_commonSpeedDiff,
+        _s16_speedRampUp);
+    
+     
+    _f_commonSpeed += loc_f_commonSpeedDiff;
+		_e_state = COMMON_SPEED; 
+		_timer.begin(Hoverboard::timerIt, (1/_f_rampUpFactor)*1000*1000); 
   }
 } 
+
+/**
+* When motors rotate in same direction. Hoverboard performs an integral
+* control from daugtherboards gyroscope data. In order to keep a clean 
+* control, we must simulate an integral control on simulated gyros.
+* Differential control is a proportional control 
+*/ 
+void Hoverboard::setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2)
+{
+  float loc_f_differentialSpeed = 0.0; 
+
+  if(arg_f_speed1 > 0 && arg_f_speed2 > 0)
+  {
+    loc_f_differentialSpeed = fabs(arg_f_speed1 - arg_f_speed2)/2.0;
+    
+      _f_diffSpeed1 = loc_f_differentialSpeed; 
+      _f_diffSpeed2 = loc_f_differentialSpeed;
+  }
+  else if(arg_f_speed1 < 0 && arg_f_speed2 < 0)
+  {
+    loc_f_differentialSpeed = fabs(arg_f_speed1 - arg_f_speed2)/2.0;
+      _f_diffSpeed2 = -loc_f_differentialSpeed;
+      _f_diffSpeed1 = -loc_f_differentialSpeed;
+  }
+  else
+  {
+    _f_diffSpeed1 = -arg_f_speed1;
+    _f_diffSpeed2 = arg_f_speed2;
+  }
+    
+  LOG_DEBUG_LN("diff_speed (%f, %f)", 
+     _f_diffSpeed1,
+     _f_diffSpeed2); 
+}
 
 void Hoverboard::timerIt(void)
 {
@@ -230,13 +432,118 @@ void Hoverboard::timerIt(void)
   {
     digitalWrite(_instance->_u16_powerPin, LOW);
     _instance->_e_state = POWER_ON;
+    _instance->_u32_events |= POWERED_ON_EVENT;
   }
   else if(_instance->_e_state == POWERING_OFF)
   {
     digitalWrite(_instance->_u16_powerPin, LOW);
     _instance->_e_state = POWER_OFF;
+    _instance->_u32_events |= POWERED_OFF_EVENT;
+  }
+  else if(_instance->_e_state == COMMON_SPEED)
+  {
+    _instance->_e_state = IDLE;
+    _instance->_u32_events |= SPEED_APPLIED_EVENT;
   }
   _instance->_timer.end();
+}
+
+/** Motor 1 sensor Cbs */
+void Hoverboard::motor1Hall1It(void)
+{
+  if(_instance->_has_motor1HallSensor)
+  {
+    _instance->_hallSensor1.hall1It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+} 
+
+void Hoverboard::motor1Hall2It(void)
+{
+  if(_instance->_has_motor1HallSensor)
+  {
+    _instance->_hallSensor1.hall2It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+void Hoverboard::motor1Hall3It(void)
+{
+  if(_instance->_has_motor1HallSensor)
+  {
+    _instance->_hallSensor1.hall3It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+void Hoverboard::motor1TimerIt(void)
+{
+  if(_instance->_has_motor1HallSensor)
+  {
+    _instance->_hallSensor1.timerIt();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+/** Motor 2 sensor Cbs */
+void Hoverboard::motor2Hall1It(void)
+{
+  if(_instance->_has_motor2HallSensor)
+  {
+    _instance->_hallSensor2.hall1It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+void Hoverboard::motor2Hall2It(void)
+{
+  if(_instance->_has_motor2HallSensor)
+  {
+    _instance->_hallSensor2.hall2It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+void Hoverboard::motor2Hall3It(void)
+{
+  if(_instance->_has_motor2HallSensor)
+  {
+    _instance->_hallSensor2.hall3It();
+  }
+  else
+  {
+    ASSERT(false);
+  }
+}
+
+void Hoverboard::motor2TimerIt(void)
+{
+  if(_instance->_has_motor2HallSensor)
+  {
+    _instance->_hallSensor2.timerIt();
+  }
+  else
+  {
+    ASSERT(false);
+  }
 }
 
 
