@@ -44,7 +44,7 @@ class HoverboardUART :
         not connect UART now '''
         self._serial = serial.Serial(
             port=None,
-            baudrate=115200,
+            baudrate=500000,
             parity=serial.PARITY_ODD,
             stopbits=serial.STOPBITS_TWO,
             bytesize=serial.SEVENBITS,
