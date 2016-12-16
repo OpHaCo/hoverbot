@@ -176,6 +176,7 @@ public:
     void Debug(const char msg[], ...);
     void Debug( const __FlashStringHelper * msg, ...);
     void DebugLn( const __FlashStringHelper * msg, ...);
+    void DebugLn(const char msg[], ...);
     void DebugStr(const __FlashStringHelper * msg);
     void DebugStrLn(const __FlashStringHelper * msg);
 	

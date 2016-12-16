@@ -56,7 +56,7 @@ void Logging::Assert(const char func[], const char file[], int lineno, const cha
 	_p_output_stream->print(lineno, DEC);
 	_p_output_stream->flush();
 	// abort program execution.
-	abort();
+	//abort();
 }
 
 void Logging::Assert(const char func[], const __FlashStringHelper * file, int lineno, const __FlashStringHelper *expr)
@@ -73,7 +73,7 @@ void Logging::Assert(const char func[], const __FlashStringHelper * file, int li
 	_p_output_stream->print(lineno, DEC);
 	_p_output_stream->flush();
 	// abort program execution.
-	abort();
+	//abort();
 }
 
 void Logging::Error(const char msg[], ...){
@@ -189,6 +189,16 @@ void Logging::Debug(const char msg[], ...){
 }
 
 void Logging::DebugLn(const __FlashStringHelper * msg, ...){
+	if (LOG_LEVEL_DEBUG <= _u8_logLevel) {
+		va_list args;
+		va_start(args, msg);
+		print(msg,args);
+		_p_output_stream->print(BL);
+		_p_output_stream->flush();
+	}
+}
+
+void Logging::DebugLn(const char msg[], ...){
 	if (LOG_LEVEL_DEBUG <= _u8_logLevel) {
 		va_list args;
 		va_start(args, msg);

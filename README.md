@@ -129,9 +129,17 @@ If you use arduino IDE, you must create symlinks/shortcuts from these libraries 
     ln -s your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor arduino_user_path/libraries/
     ln -s your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/logger arduino_user_path/libraries/
 
+Then from Arduino IDE add these libraries.
+
+##### Configure logging level
+    
+Edit 
+    your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/logger/logger_config.h
+    
+and set needed log level (refer your_folder/hoverbot/hoverbot_embedded_software/teensy_hoverboard/logger/README.md)
+    
 ### Arduino sketch
 
-    
 
 As we saw in our first tests, when same daughterboard is connected to two motherboards/daughterboard connectors :
  * wheels rotating direction is different. Hoverboard is rotating
