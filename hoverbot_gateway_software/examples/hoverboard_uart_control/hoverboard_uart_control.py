@@ -26,6 +26,7 @@
   '''
 
 import time
+from datetime import datetime
 import serial
 import sys
 import os
@@ -97,16 +98,18 @@ class HoverboardUART :
             data = self._serial.read(self._serial.in_waiting or 1)
             if data:
                 text = data.decode("utf-8")
+                # Add timestamp in ms
+                time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3] 
                 # Append char indicating some data have been received from hoverbot
                 if self._is_last_newline :
-                    text = '< ' + text 
+                    text = time_str + ' < ' + text 
                 if text[-1:] == '\n':
                     self._is_last_newline = True
                     # Insert char indicating some data have been received from hoverbot
-                    text = text[:-1].replace('\n', '\n< ') 
+                    text = text[:-1].replace('\n', '\n' + time_str + ' < ') 
                     text = text + '\n'
                 else :
-                    text = text.replace('\n', '\n< ') 
+                    text = text.replace('\n', '\n' + time_str + ' < ') 
                     self._is_last_newline = False
                 self._uart_term.output_text(text, 'green') 
                  

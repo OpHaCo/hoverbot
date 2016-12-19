@@ -66,18 +66,15 @@ Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
   _u16_powerPin(arg_config._u16_powerPin),
   _timer(),
   _e_state(POWER_OFF),
-	_s16_calValue(0),
 	_p_gyro1Serial(arg_config._p_gyro1Serial),
 	_p_gyro2Serial (arg_config._p_gyro2Serial),
   _f_speed1(0.0),
   _f_speed2(0.0),
   _f_sensorSpeed1(0.0), 
   _f_sensorSpeed2(0.0), 
-  _f_diffSpeed1(0.0),
-  _f_diffSpeed2(0.0),
+  _f_diffSpeed(0.0),
   _s16_speedRampUp(0),
   _f_commonSpeed(0.0), 
-  _f_rampUpFactor(0.3),
   _p_listener(NULL),
   _u32_events(0)
 {
@@ -160,8 +157,7 @@ Hoverboard::EHoverboardErr Hoverboard::powerOnAsync(void)
   {
     _f_speed1 = 0.0;
     _f_speed2 = 0.0;
-    _f_diffSpeed1 = 0.0;
-    _f_diffSpeed2 = 0.0;
+    _f_diffSpeed = 0.0;
     _f_commonSpeed = 0.0;
     
     _e_state = POWERING_ON;
@@ -189,8 +185,7 @@ Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
   {
     _f_speed1 = 0.0;
     _f_speed2 = 0.0;
-    _f_diffSpeed1 = 0.0;
-    _f_diffSpeed2 = 0.0;
+    _f_diffSpeed = 0.0;
     _f_commonSpeed = 0.0;
     _e_state = POWERING_OFF;
     digitalWrite(_u16_powerPin, HIGH);
@@ -199,7 +194,7 @@ Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
   return NO_ERROR; 
 }
 
-Hoverboard::EHoverboardErr Hoverboard::setSpeedAsync(float arg_f_speed1, float arg_f_speed2)
+Hoverboard::EHoverboardErr Hoverboard::setSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur)
 {
   if(_e_state == IDLE)
   {
@@ -236,9 +231,9 @@ void Hoverboard::idleControl(void)
   else if(_e_state != POWER_OFF)
   {
     _e_state = IDLE;
-    /** Idle control => apply calibration value when motors rotate same direction */
-    simulateGyro1(_f_diffSpeed1);
-    simulateGyro2(_f_diffSpeed2);
+    /** Idle control => apply differential speed (proportional control) */
+    simulateGyro1(_f_diffSpeed);
+    simulateGyro2(_f_diffSpeed);
   } 
    
   
@@ -347,7 +342,7 @@ void Hoverboard::simulateGyro2(int16_t arg_s16_target)
 * control from daugtherboards gyroscope data. In order to keep a clean 
 * control, we must simulate an integral control on simulated gyros/
 */ 
-void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2)
+void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur)
 {
   float loc_f_commonSpeedDiff = 0.0;
   float loc_f_commonSpeed = 0.0;
@@ -365,7 +360,6 @@ void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2)
   else
   {
     /** No common speed */
-    return;
   }
   
   loc_f_commonSpeedDiff = loc_f_commonSpeed - _f_commonSpeed;
@@ -376,19 +370,20 @@ void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2)
   }
   else
   {
-    _s16_speedRampUp =  loc_f_commonSpeedDiff*_f_rampUpFactor;      
+    _s16_speedRampUp =  1000*loc_f_commonSpeedDiff/(float)arg_u32_rampUpDur;      
     
-    LOG_DEBUG_LN("Common speed : target(%f %f) actual(%f) new(%f) ramp(%d)",
+    LOG_DEBUG_LN("Common speed : target(%f %f) actual(%f) new(%f) ramp(%d) duration=%dms",
         arg_f_speed1,
         arg_f_speed2,
         _f_commonSpeed,
         loc_f_commonSpeedDiff,
-        _s16_speedRampUp);
+        _s16_speedRampUp,
+        arg_u32_rampUpDur);
     
      
     _f_commonSpeed += loc_f_commonSpeedDiff;
 		_e_state = COMMON_SPEED; 
-		_timer.begin(Hoverboard::timerIt, (1/_f_rampUpFactor)*1000*1000); 
+		_timer.begin(Hoverboard::timerIt, arg_u32_rampUpDur*1000); 
   }
 } 
 
@@ -400,30 +395,18 @@ void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2)
 */ 
 void Hoverboard::setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2)
 {
-  float loc_f_differentialSpeed = 0.0; 
-
-  if(arg_f_speed1 > 0 && arg_f_speed2 > 0)
+  if(arg_f_speed1 >=  arg_f_speed2 )
   {
-    loc_f_differentialSpeed = fabs(arg_f_speed1 - arg_f_speed2)/2.0;
-    
-      _f_diffSpeed1 = loc_f_differentialSpeed; 
-      _f_diffSpeed2 = loc_f_differentialSpeed;
-  }
-  else if(arg_f_speed1 < 0 && arg_f_speed2 < 0)
-  {
-    loc_f_differentialSpeed = fabs(arg_f_speed1 - arg_f_speed2)/2.0;
-      _f_diffSpeed2 = -loc_f_differentialSpeed;
-      _f_diffSpeed1 = -loc_f_differentialSpeed;
+    _f_diffSpeed = (arg_f_speed1 - arg_f_speed2)/2.0; 
   }
   else
   {
-    _f_diffSpeed1 = -arg_f_speed1;
-    _f_diffSpeed2 = arg_f_speed2;
+    _f_diffSpeed = (arg_f_speed2 - arg_f_speed1)/2.0; 
   }
     
   LOG_DEBUG_LN("diff_speed (%f, %f)", 
-     _f_diffSpeed1,
-     _f_diffSpeed2); 
+     _f_diffSpeed,
+     _f_diffSpeed); 
 }
 
 void Hoverboard::timerIt(void)

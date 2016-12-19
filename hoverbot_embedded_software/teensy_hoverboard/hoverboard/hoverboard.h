@@ -118,15 +118,13 @@ class Hoverboard
      **/
     IntervalTimer _timer;
     volatile EHoverboardState _e_state;
-    int16_t _s16_calValue;
 		HardwareSerial * _p_gyro1Serial, * _p_gyro2Serial;				
     float _f_speed1, _f_speed2;
     float _f_sensorSpeed1, _f_sensorSpeed2; 
-    float _f_diffSpeed1, _f_diffSpeed2; 
+    /** Differential speed between motor 1 and motor 2*/ 
+    float _f_diffSpeed; 
     int16_t _s16_speedRampUp; 
     float _f_commonSpeed;
-    /** Factor to reach target speed - time to reach speed = 1/ramp_up_factor */ 
-    float _f_rampUpFactor;
     /** Pending events pushed under IT : bit field - max events = 32 */
     uint32_t _u32_events; 
     HoverboardListener* _p_listener; 
@@ -154,8 +152,16 @@ class Hoverboard
     EHoverboardErr powerOff(void);
     EHoverboardErr powerOffAsync(void);
 
-    /** Set speed for motors  */ 
-    EHoverboardErr setSpeedAsync(float arg_f_speed1, float arg_f_speed2);
+    /**
+     * @brief Set speed for motors
+     *
+     * @param arg_f_speed1
+     * @param arg_f_speed2
+     * @param arg_u32_rampUpDur duration to reach speed in ms
+     *
+     * @return 
+     */
+    EHoverboardErr setSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur = 2000);
     
     /**
      * Stop any control 
@@ -174,7 +180,16 @@ class Hoverboard
     /** private methods */  
   private :
     EHoverboardState getState(void);
-    void setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2);
+    
+    
+    /**
+     * @brief Set common speed
+     *
+     * @param arg_f_speed1
+     * @param arg_f_speed2
+     * @param arg_u32_rampUpDur in ms
+     */
+    void setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur = 2000);
     void setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2);
     static void timerIt(void);
     
