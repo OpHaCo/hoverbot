@@ -107,6 +107,7 @@ float BrushlessHallSensor::getSpeed(void)
  **************************************************************************/
 void BrushlessHallSensor::hall1It(void)
 {
+  detachInterrupt(_config._u8_hall1Pin); 
   /** reject spikes */
   if(digitalRead(_config._u8_hall1Pin) &&
       ((digitalRead(_config._u8_hall2Pin) && !digitalRead(_config._u8_hall3Pin))
@@ -128,6 +129,7 @@ void BrushlessHallSensor::hall1It(void)
 
 void BrushlessHallSensor::hall2It(void)
 {
+  detachInterrupt(_config._u8_hall2Pin); 
   /** reject spikes */
   if(digitalRead(_config._u8_hall2Pin) &&
       ((digitalRead(_config._u8_hall1Pin) && !digitalRead(_config._u8_hall3Pin))
@@ -148,6 +150,7 @@ void BrushlessHallSensor::hall2It(void)
 
 void BrushlessHallSensor::hall3It(void)
 {
+  detachInterrupt(_config._u8_hall3Pin); 
   /** reject spikes */
   if(digitalRead(_config._u8_hall3Pin) &&
       ((digitalRead(_config._u8_hall1Pin) && !digitalRead(_config._u8_hall2Pin))

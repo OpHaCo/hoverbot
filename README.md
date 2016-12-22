@@ -94,6 +94,26 @@ Rotating around 0 helps us :
 
 We can check it is only an angular value applying linear acceleration to daughterboard. In this case angular value do not change.
 
+#### ** Speed sensor **
+In wheels some hall sensors are used to get wheel speed (3 sensors per wheel).
+On mother board, sensor pulses are filtered using an RC filter. To get speed, we must connect it to hoverbot. 
+
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor/img/detect_edge_bug/brushless_sensor_no_trigger.png" width="900">
+
+If we trigger a digital output (channel 0) on a rising edge (channel 0) we do not have a clean signal :
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor/img/detect_edge_bug/edge_detection_global_ko.png" width="900">
+
+With a zoom :
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor/img/detect_edge_bug/edge_detection_zoom_ko.png" width="900">
+
+Small oscillation when V=Vdd/2 generates some falling /rising edges. Because of RC time constant, we can get lot of oscillations leading to some false detections. It could be software filtered (either using timer or checking multiple times read value). As I prefer capturing Hall sensor pulses using external interrupt it is better to have an hardware solution. As Teensy MCU does not have any input schmitt trigger we will add it :
+
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor/img/detect_edge_bug/brushless_sensor_trigger.png" width="900">
+
+After we have a good pulse detection :
+
+ <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/hoverbot_embedded_software/teensy_hoverboard/brushless_hall_sensor/img/detect_edge_bug/edge_detection_zoom_ok.png" width="900">
+ 
 ### **hardware** 
 
 In order to control hoverboard we need an external MCU to :
@@ -104,6 +124,8 @@ Different MCU can be used, we could use UART bitbanging libraries... But a nice 
  * it runs @3.3V
  * [9 bit uart supported on Arduino Core] (https://www.pjrc.com/teensy/td_uart.html)
  * 3 avaialble hardware UARTs!
+
+
 
 ### **software** 
 
