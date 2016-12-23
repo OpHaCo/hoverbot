@@ -72,8 +72,9 @@ class ListView(FocusMixin, urwid.ListBox):
                 del self.body[0]
             self.body.append(urwid.Text(line))
             last=len(self.body)-1
-            if was_on_end:
-                self.set_focus(last,'above')
+            #if was_on_end:
+            self.set_focus(last, 'above')
+            self.set_focus_valign('bottom')
         
     
     def add_text(self,text):
@@ -93,9 +94,10 @@ class ListView(FocusMixin, urwid.ListBox):
             else : 
                 self.body.append(urwid.Text(text))
             last=len(self.body)-1
-            if was_on_end:
-                self.set_focus(last,'above')
-
+            #if was_on_end:
+            self.set_focus(last, 'above')
+            self.set_focus_valign('bottom')
+            
 class Input(FocusMixin, urwid.Edit):
     signals=['line_entered']
     def __init__(self, got_focus=None):
