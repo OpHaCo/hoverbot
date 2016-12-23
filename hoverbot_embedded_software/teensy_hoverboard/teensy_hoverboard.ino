@@ -33,6 +33,11 @@
 #define LOG_SPEED 500000
 #define LOG_SERIAL Serial
 #define MAX_CMD_LENGTH 0xFFU
+
+#define SET_SPEED_CMD_LENGTH 13U 
+#define POWER_ON_CMD_LENGTH   1U 
+#define POWER_OFF_CMD_LENGTH  1U 
+#define STOP_CMD_LENGTH       1U 
 /**************************************************************************
  * Type Definitions
  **************************************************************************/
@@ -44,14 +49,13 @@
  * |_______|_____________|____________|
  * 
  ****************************************/
- 
 typedef enum
 {
-  SET_SPEED = 0, /* ARGS : SPEED1 (short LE) - SPEED2 (short LE) */
+  SET_SPEED    = 0, /* ARGS : SPEED1 (short LE) - SPEED2 (short LE) */
   POWER_ON     = 1,
   POWER_OFF    = 2,
   STOP         = 3
-}EControlCmds;
+}EControlCmd;
 
 typedef enum
 {
@@ -96,14 +100,21 @@ static int16_t currPos = 0;
 static uint8_t _au8_rcvCmd[MAX_CMD_LENGTH] = {0};
 
 /** ItCBS will be filled by hoverboard */
-static BrushlessHallSensor::ItCbs itCbs;
+static BrushlessHallSensor::ItCbs motor1ItCbs;
 
 /** Hall sensor 1 - Give pin here */
-static BrushlessHallSensor::Config _hallSensorConf(17, 18, 19, itCbs);
+static BrushlessHallSensor::Config _hallSensor1Conf(17, 18, 19, motor1ItCbs);
+
+/** ItCBS will be filled by hoverboard */
+static BrushlessHallSensor::ItCbs motor2ItCbs;
+
+/** Hall sensor 2 - Give pin here */
+static BrushlessHallSensor::Config _hallSensor2Conf(13, 14, 15, motor2ItCbs);
 
 static Hoverboard::Config _hoverboardConf(20, 
-  &_hallSensorConf,
-  NULL,
+  21,
+  &_hallSensor1Conf,
+  &_hallSensor2Conf,
   Serial1,
   Serial3);
 
@@ -116,7 +127,7 @@ void setup() {
    LOG_SERIAL.begin(500000);
    LOG_INIT_STREAM(LOG_LEVEL, &LOG_SERIAL);
    /** Wait 1s to get setup logs */
-   delay(1000);
+   delay(2000);
    LOG_INFO_LN("starting hoverboard hack...");
    _hoverboard.init();
    _hoverboardListenerExample.init();
@@ -225,20 +236,21 @@ void HoverboardListenerExample::sendCmd(EFeedbackCmds arg_e_cmdType, uint8_t arg
 void HoverboardListenerExample::handleCommand(uint8_t arg_u8_cmd[], uint16_t arg_u16_cmdLength)
 {
   uint16_t targetSpeed = 200;  
-  if(arg_u8_cmd[0] == POWER_ON && arg_u16_cmdLength == 1)
+  if(arg_u8_cmd[0] == POWER_ON && arg_u16_cmdLength == POWER_ON_CMD_LENGTH)
   {
     LOG_INFO_LN("POWER_ON");
     _p_hoverboard->powerOn();
   }
-  else if(arg_u8_cmd[0] == POWER_OFF && arg_u16_cmdLength == 1)
+  else if(arg_u8_cmd[0] == POWER_OFF && arg_u16_cmdLength == POWER_OFF_CMD_LENGTH)
   {
     LOG_INFO_LN("POWER_OFF");
     _p_hoverboard->powerOff();
   }
-  else if(arg_u8_cmd[0] == SET_SPEED && arg_u16_cmdLength == 9)
+  else if(arg_u8_cmd[0] == SET_SPEED && arg_u16_cmdLength == SET_SPEED_CMD_LENGTH)
   {
     /** Data in little endian */
     float _speed1, _speed2;
+    uint32_t _rampUpDur;
     uint32_t temp_val = arg_u8_cmd[1] | 
       arg_u8_cmd[2] << 8  |
       arg_u8_cmd[3] << 16 |
@@ -253,12 +265,25 @@ void HoverboardListenerExample::handleCommand(uint8_t arg_u8_cmd[], uint16_t arg
 
     _speed2 = *(float*)(&temp_val);
 
-    LOG_INFO_LN("SET_SPEED TO (%f, %f)",
-      _speed1,
-      _speed2);
-    _p_hoverboard->setSpeedAsync(_speed1, _speed2);
+    _rampUpDur = arg_u8_cmd[9] | 
+      arg_u8_cmd[10] << 8  |
+      arg_u8_cmd[11] << 16 |
+      arg_u8_cmd[12] << 24;
+
+    if(_rampUpDur <= 0)
+    {
+      LOG_ERROR("Invalid ramp up duration given");
+    }
+    else
+    {
+      LOG_INFO_LN("SET_SPEED TO (%f, %f) in %d ms",
+        _speed1,
+        _speed2,
+        _rampUpDur);
+      _p_hoverboard->setSpeedAsync(_speed1, _speed2, _rampUpDur); 
+    }
   }
-  else if(arg_u8_cmd[0] == STOP && arg_u16_cmdLength == 1)
+  else if(arg_u8_cmd[0] == STOP && arg_u16_cmdLength == STOP_CMD_LENGTH)
   {
     LOG_INFO_LN("STOP TODO");
   }

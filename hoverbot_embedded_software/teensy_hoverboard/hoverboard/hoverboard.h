@@ -68,7 +68,8 @@ class Hoverboard
       POWERING_ON,
       POWERING_OFF,
       IDLE, 
-      COMMON_SPEED
+      COMMON_SPEED,
+      OUT_OF_ENUM_STATE
     }EHoverboardState;
     
 
@@ -77,16 +78,19 @@ class Hoverboard
     {
       public :
         uint16_t _u16_powerPin;
+        uint16_t _u16_powerStatPin; 
         BrushlessHallSensor::Config* _p_motor1Conf;
         BrushlessHallSensor::Config* _p_motor2Conf;
 				HardwareSerial * _p_gyro1Serial, * _p_gyro2Serial;				
 
         inline Config(const uint16_t arg_u16_powerPin,
+            const uint16_t arg_u16_powerStatPin,
             BrushlessHallSensor::Config* arg_p_motor1HallSensorConf,
             BrushlessHallSensor::Config* arg_p_motor2HallSensorConf,
 						HardwareSerial& arg_gyro1Serial,
 						HardwareSerial& arg_gyro2Serial):
           _u16_powerPin(arg_u16_powerPin),
+          _u16_powerStatPin(arg_u16_powerStatPin),
           _p_motor1Conf(arg_p_motor1HallSensorConf),
           _p_motor2Conf(arg_p_motor2HallSensorConf),
 					_p_gyro1Serial(&arg_gyro1Serial),
@@ -111,6 +115,8 @@ class Hoverboard
     BrushlessHallSensor _hallSensor1, _hallSensor2;
     /** Pin to control hoverboard power, calibration */
     const uint16_t _u16_powerPin; 
+    /** Pin to check hoverboard power status */
+    const uint16_t _u16_powerStatPin; 
     /** Hoverboard must always get some control commands
      * => no delay fonction > 50ms must be called, or an error 
      * on hoverboard side will be detected.
@@ -151,6 +157,7 @@ class Hoverboard
     EHoverboardErr powerOnAsync(void);
     EHoverboardErr powerOff(void);
     EHoverboardErr powerOffAsync(void);
+    bool isPowered(void); 
 
     /**
      * @brief Set speed for motors
@@ -192,6 +199,7 @@ class Hoverboard
     void setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur = 2000);
     void setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2);
     static void timerIt(void);
+    static void powerOffIt(void); 
     
     /** Motor 1 sensor Cbs */
     static void motor1Hall1It(void);

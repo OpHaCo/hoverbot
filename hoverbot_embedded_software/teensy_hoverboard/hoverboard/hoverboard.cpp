@@ -64,8 +64,9 @@ Hoverboard* Hoverboard::_instance = NULL;
  **************************************************************************/
 Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
   _u16_powerPin(arg_config._u16_powerPin),
+  _u16_powerStatPin(arg_config._u16_powerStatPin),
   _timer(),
-  _e_state(POWER_OFF),
+  _e_state(OUT_OF_ENUM_STATE),
 	_p_gyro1Serial(arg_config._p_gyro1Serial),
 	_p_gyro2Serial (arg_config._p_gyro2Serial),
   _f_speed1(0.0),
@@ -95,8 +96,12 @@ Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
   
   if(arg_config._p_motor2Conf)
   {
-    _hallSensor1 = BrushlessHallSensor(*arg_config._p_motor2Conf);
-    _has_motor1HallSensor = true;
+    arg_config._p_motor2Conf->_itCbs._pfn_hall1It = Hoverboard::motor2Hall1It;
+    arg_config._p_motor2Conf->_itCbs._pfn_hall2It = Hoverboard::motor2Hall2It;
+    arg_config._p_motor2Conf->_itCbs._pfn_hall3It = Hoverboard::motor2Hall3It;
+    arg_config._p_motor2Conf->_itCbs._pfn_timerIt = Hoverboard::motor2TimerIt;
+    _hallSensor2 = BrushlessHallSensor(*arg_config._p_motor2Conf);
+    _has_motor2HallSensor = true;
   }
   else
   {
@@ -112,7 +117,21 @@ Hoverboard::EHoverboardErr Hoverboard::init(void)
    _p_gyro2Serial->begin (26300, SERIAL_9N1);  // 9 bits mode
 
   pinMode(_u16_powerPin, OUTPUT);
-  powerOff(); 
+  pinMode(_u16_powerStatPin, INPUT_PULLUP);
+  attachInterrupt(_u16_powerStatPin, Hoverboard::powerOffIt, RISING); 
+  
+  if(isPowered())
+  {
+    _e_state = POWER_ON;
+    LOG_INFO_LN("startup : POWERING OFF hoverbot"); 
+    powerOff(); 
+  }
+  else
+  {
+    LOG_INFO_LN("startup : Hoverbot is POWERED OFF"); 
+    /** already off */
+    _e_state = POWER_OFF;
+  }
   
   /** Start hall sensing */
   if(_has_motor1HallSensor)
@@ -142,17 +161,24 @@ void Hoverboard::unregisterListener(void)
 
 Hoverboard::EHoverboardErr Hoverboard::powerOn(void)
 {
-  powerOnAsync();
-  while(_e_state != POWER_ON)
+  if(_e_state == POWER_OFF)
   {
-    /** TODO : IDLE control */
+    powerOnAsync();
+    while(_e_state != POWER_ON)
+    {
+      /** TODO : IDLE control */
+    }
   }
-  //TODO check status 
+  else
+  {
+    LOG_DEBUG_LN("already powered on");
+  }
   return NO_ERROR;
 } 
   
 Hoverboard::EHoverboardErr Hoverboard::powerOnAsync(void)
 {
+    Serial.println("pwoeron"); 
   if(_e_state != POWER_ON || _e_state != POWERING_ON)
   {
     _f_speed1 = 0.0;
@@ -162,25 +188,30 @@ Hoverboard::EHoverboardErr Hoverboard::powerOnAsync(void)
     
     _e_state = POWERING_ON;
     digitalWrite(_u16_powerPin, HIGH);
-    _timer.begin(Hoverboard::timerIt, Hoverboard::SHORT_PRESS_DUR_MS*1000); 
+    _timer.begin(Hoverboard::timerIt, SHORT_PRESS_DUR_MS*1000); 
   }
   return NO_ERROR; 
 } 
 
 Hoverboard::EHoverboardErr Hoverboard::powerOff(void)
 {
-  powerOffAsync();
-  while(_e_state != POWER_OFF)
+  if(_e_state != POWER_OFF)
   {
-    /** TODO : IDLE control */
+    powerOffAsync();
+    while(_e_state != POWER_OFF)
+    {
+      /** TODO : IDLE control */
+    }
+  } 
+  else
+  {
+    LOG_DEBUG_LN("already powered off");
   }
-  //TODO check status 
   return NO_ERROR;
 }
 
 Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
 {
-  //TODO check status 
   if(_e_state != POWER_OFF || _e_state != POWERING_OFF)
   {
     _f_speed1 = 0.0;
@@ -189,16 +220,24 @@ Hoverboard::EHoverboardErr Hoverboard::powerOffAsync(void)
     _f_commonSpeed = 0.0;
     _e_state = POWERING_OFF;
     digitalWrite(_u16_powerPin, HIGH);
+    /** POWER OFF detected on rising edge => increasing press duration makes power off
+     * detected later */
     _timer.begin(Hoverboard::timerIt, Hoverboard::SHORT_PRESS_DUR_MS*1000); 
   }
   return NO_ERROR; 
+}
+
+
+bool Hoverboard::isPowered(void)
+{
+  return !digitalRead(_u16_powerStatPin);
 }
 
 Hoverboard::EHoverboardErr Hoverboard::setSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur)
 {
   if(_e_state == IDLE)
   {
-    setCommonSpeedAsync(arg_f_speed1, arg_f_speed2); 
+    setCommonSpeedAsync(arg_f_speed1, arg_f_speed2, arg_u32_rampUpDur); 
     setDifferentialSpeed(arg_f_speed1, arg_f_speed2);
     _f_speed1 = arg_f_speed1; 
     _f_speed2 = arg_f_speed2; 
@@ -236,11 +275,10 @@ void Hoverboard::idleControl(void)
     simulateGyro2(_f_diffSpeed);
   } 
    
-  
   /** Read speed from sensors */ 
   if(_has_motor1HallSensor)
   {
-     loc_f_newSpeed =_hallSensor1.getSpeed();
+    loc_f_newSpeed =_hallSensor1.getSpeed();
     if(_f_sensorSpeed1 != loc_f_newSpeed)
     { 
       _f_sensorSpeed1 = loc_f_newSpeed;
@@ -347,6 +385,9 @@ void Hoverboard::setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2, uin
   float loc_f_commonSpeedDiff = 0.0;
   float loc_f_commonSpeed = 0.0;
   
+  /** TODO check min an max values */ 
+  ASSERT(arg_u32_rampUpDur > 0); 
+  
   _s16_speedRampUp = 0; 
 
   if(arg_f_speed1 >= 0 && arg_f_speed2 >= 0)
@@ -414,14 +455,17 @@ void Hoverboard::timerIt(void)
   if(_instance->_e_state == POWERING_ON)
   {
     digitalWrite(_instance->_u16_powerPin, LOW);
-    _instance->_e_state = POWER_ON;
-    _instance->_u32_events |= POWERED_ON_EVENT;
+    if(_instance->isPowered())
+    {
+      _instance->_e_state = POWER_ON;
+      _instance->_u32_events |= POWERED_ON_EVENT;
+    }
   }
   else if(_instance->_e_state == POWERING_OFF)
   {
     digitalWrite(_instance->_u16_powerPin, LOW);
-    _instance->_e_state = POWER_OFF;
-    _instance->_u32_events |= POWERED_OFF_EVENT;
+    /** Hoverbot not yet stopped - it is stopped on falling edge
+     * => POWER OFF will be detected in POWER_OFF it */
   }
   else if(_instance->_e_state == COMMON_SPEED)
   {
@@ -429,6 +473,20 @@ void Hoverboard::timerIt(void)
     _instance->_u32_events |= SPEED_APPLIED_EVENT;
   }
   _instance->_timer.end();
+}
+
+void Hoverboard::powerOffIt(void)
+{
+  detachInterrupt(_instance->_u16_powerStatPin); 
+  if(!(_instance->isPowered()))
+  {
+    if(_instance->_e_state == POWERING_OFF)
+    {
+      _instance->_u32_events |= POWERED_OFF_EVENT;
+    } 
+    _instance->_e_state = POWER_OFF;
+  } 
+  attachInterrupt(_instance->_u16_powerStatPin, Hoverboard::powerOffIt, RISING); 
 }
 
 /** Motor 1 sensor Cbs */
