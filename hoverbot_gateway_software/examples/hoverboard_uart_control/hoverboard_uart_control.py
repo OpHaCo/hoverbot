@@ -99,7 +99,7 @@ class HoverboardUART :
             if data:
                 text = data.decode("utf-8")
                 # Add timestamp in ms
-                time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3] 
+                time_str = HoverboardUART.getTime() 
                 # Append char indicating some data have been received from hoverbot
                 if self._is_last_newline :
                     text = time_str + ' < ' + text 
@@ -119,10 +119,10 @@ class HoverboardUART :
                 self._serial.close()
                 self.connectUART(1000)
                 
-    def setSpeed(self, speed1, speed2):
+    def setSpeed(self, speed1, speed2, rampUpDur):
         try :
             if self._serial and self._serial.is_open :
-                data_to_send = struct.pack('<Bff', HoverboardUART.HoverboardCmd.CmdId.SET_SPEED, speed1, speed2)
+                data_to_send = struct.pack('<BffI', HoverboardUART.HoverboardCmd.CmdId.SET_SPEED, speed1, speed2, rampUpDur)
                 self._serial.write(data_to_send)
                 self._speed=(speed1, speed2) 
             else :
@@ -130,7 +130,7 @@ class HoverboardUART :
         except Exception as e:
             raise Exception('cannot write command to uart - {}'.format(e))
     
-    def stop():
+    def stop(self):
         try :
             if self._serial and self._serial.is_open :
                 data_to_send = struct.pack('<B', HoverboardUART.HoverboardCmd.CmdId.STOP)
@@ -140,6 +140,9 @@ class HoverboardUART :
                 raise Exception('cannot send command - uart not connected')
         except Exception as e:
             raise Exception('cannot write command to uart - {}'.format(e))
+        
+    def getTime() :
+       return datetime.now().strftime("%H:%M:%S.%f")[:-3]  
 
 
     ''' INNER CLASSES '''
@@ -162,16 +165,16 @@ class HoverboardUART :
             # Numeric keypad control
             elif key == '8' and self._outer._cmds._is_keypad_control :
                 #Go in forward direction incresing speed
-                return self._outer.setSpeed(self._outer._speed[0] - 50, self._outer._speed[1] - 50)
+                return self._outer.setSpeed(self._outer._speed[0] - 50, self._outer._speed[1] - 50, 1000)
             elif key == '4' and self._outer._cmds._is_keypad_control :
                 #Go left
-                return self._outer.setSpeed(self._outer._speed[0] + 40, self._outer._speed[1] - 40)
+                return self._outer.setSpeed(self._outer._speed[0] + 40, self._outer._speed[1] - 40, 1000)
             elif key == '6' and self._outer._cmds._is_keypad_control :
                 #Go right
-                return self._outer.setSpeed(self._outer._speed[0] - 40, self._outer._speed[1] + 40)
+                return self._outer.setSpeed(self._outer._speed[0] - 40, self._outer._speed[1] + 40, 1000)
             elif key == '2' and self._outer._cmds._is_keypad_control :
                 #Go in backward direction
-                return self._outer.setSpeed(self._outer._speed[0] + 50, self._outer._speed[1] + 50)
+                return self._outer.setSpeed(self._outer._speed[0] + 50, self._outer._speed[1] + 50, 1000)
             elif key == '5' and self._outer._cmds._is_keypad_control :
                 #Stop
                 return self._outer.stop();
@@ -192,18 +195,19 @@ class HoverboardUART :
             self._is_keypad_control = False
             
         def do_set_speed(self, *args):
-            usage = 'USAGE : set_speed speed1(float) speed2(float))' 
-            ''' parse left and right motor speed'''
-            if len(args) != 2 :
-                raise Exception('2 arguments must be given\n{}'.format(usage))
+            usage = 'USAGE : set_speed speed1(float) speed2(float) ramp_up_duration(uint32)' 
+            ''' parse left, right motor speed and ramp up duration'''
+            if len(args) != 3 :
+                raise Exception('3 arguments must be given\n{}'.format(usage))
             try :
                 speed1 = float(args[0])
                 speed2 = float(args[1])
+                rampUpDur = int(args[2])
             except Exception as ValueError :
-               raise Exception('speed  must be a floating value\n{}'.format(usage))
+               raise Exception('Invalid argument given\n{}'.format(usage))
             ''' send command to hoverboard in LE'''
-            self._outer.setSpeed(speed1, speed2); 
-            return '> SET SPEED TO (speed1={}, speed2={})'.format(speed1, speed2) 
+            self._outer.setSpeed(speed1, speed2, rampUpDur); 
+            return HoverboardUART.getTime() + ' > SET SPEED TO (speed1={}, speed2={} in {} ms)'.format(speed1, speed2, rampUpDur) 
         
         def do_power_on(self, *args):
             usage = 'USAGE poweron'
@@ -217,7 +221,7 @@ class HoverboardUART :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return '> POWER_ON'
+            return HoverboardUART.getTime() + ' > POWER_ON'
 
         def do_power_off(self, *args):
             usage = 'USAGE poweroff'
@@ -231,7 +235,7 @@ class HoverboardUART :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return '> POWER_OFF'
+            return HoverboardUART.getTime() + ' POWER_OFF'
         
         def do_stop(self, *args):
             usage = 'USAGE stop'
@@ -243,7 +247,7 @@ class HoverboardUART :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return '> STOP'
+            return  HoverboardUART.getTime() + ' STOP'
         
         def do_start_keypad_control(self, *args):
             usage = 'USAGE : start keypad control using numeric keypad'
