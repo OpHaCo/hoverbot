@@ -52,7 +52,7 @@ PIDControl (float kp, float ki, float kd, float sampleTimeSeconds, float minOutp
             float maxOutput, PIDMode mode, PIDDirection controllerDirection)     	
 {
     controllerDirection = controllerDirection;
-    mode = mode;
+    this->mode = mode;
     iTerm = 0.0f;
     input = 0.0f;
     lastInput = 0.0f;

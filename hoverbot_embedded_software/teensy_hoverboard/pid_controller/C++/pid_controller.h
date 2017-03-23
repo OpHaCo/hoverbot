@@ -224,7 +224,7 @@ PIDControl
         // Returns:
         //      Nothing.
         // 
-        inline void PIDSetpointSet(float setpoint) { pid->setpoint = setpoint; }
+        inline void PIDSetpointSet(float setpoint) { this->setpoint = setpoint; }
         
         // 
         // PID Input Set
@@ -236,7 +236,7 @@ PIDControl
         // Returns:
         //      Nothing.
         // 
-        inline void PIDInputSet(float input) { pid->input = input; }
+        inline void PIDInputSet(float input) { this->input = input; }
         
         // 
         // PID Output Get
@@ -248,7 +248,7 @@ PIDControl
         // Returns:
         //      The output of the specific PID controller.
         // 
-        inline float PIDOutputGet() { return pid->output; }
+        inline float PIDOutputGet() { return this->output; }
         
         // 
         // PID Proportional Gain Constant Get
@@ -260,7 +260,7 @@ PIDControl
         // Returns:
         //      The proportional gain constant.
         // 
-        inline float PIDKpGet() { return pid->dispKp; }						  
+        inline float PIDKpGet() { return this->dispKp; }						  
         
         // 
         // PID Integral Gain Constant Get
@@ -272,7 +272,7 @@ PIDControl
         // Returns:
         //      The integral gain constant.
         // 
-        inline float PIDKiGet() { return pid->dispKi; }						  
+        inline float PIDKiGet() { return this->dispKi; }						  
         
         // 
         // PID Derivative Gain Constant Get
@@ -284,7 +284,7 @@ PIDControl
         // Returns:
         //      The derivative gain constant.
         // 
-        inline float PIDKdGet() { return pid->dispKd; }						  
+        inline float PIDKdGet() { return this->dispKd; }						  
         
         // 
         // PID Mode Get
@@ -296,7 +296,7 @@ PIDControl
         //      MANUAL or AUTOMATIC depending on what the user set the 
         //      controller to.
         // 
-        inline PIDMode PIDModeGet() { return pid->mode; }						  
+        inline PIDMode PIDModeGet() { return this->mode; }						  
         
         // 
         // PID Direction Get
@@ -308,7 +308,7 @@ PIDControl
         //      DIRECT or REVERSE depending on what the user set the
         //      controller to.
         // 
-        inline PIDDirection PIDDirectionGet() { return pid->controllerDirection; }
+        inline PIDDirection PIDDirectionGet() { return this->controllerDirection; }
         
     private:
         // 
@@ -378,6 +378,6 @@ PIDControl
         // AUTOMATIC: PID controller is on.
         // 
         PIDMode mode;
-}
+};
 
 #endif  // PID_CONTROLLER_H
