@@ -88,8 +88,6 @@ class ListView(FocusMixin, urwid.ListBox):
             # if style are different => append a new line    
             if len(self.body) > 0 and ((len(last_display_attrs) > 0 and has_style and text[0] == self.body[len(self.body) - 1].get_text()[1][0][0]) or (len(last_display_attrs) == 0 and not has_style)):
                 updated_text = self.body[len(self.body) - 1].get_text()[0] + text[1]
-                #remove \r https://github.com/urwid/urwid/issues/209
-                updated_text = updated_text.replace("\r", "") 
                 self.body[len(self.body) -1].set_text((text[0], updated_text))
             else : 
                 self.body.append(urwid.Text(text))
@@ -192,6 +190,8 @@ You can also asynchronously output messages with Commander.output('message') """
                 self.output_line(line)
     
     def output_line(self, line, style=None):
+        #remove \r https://github.com/urwid/urwid/issues/209
+        line = line.replace("\r", "") 
         if style and style in self._output_styles:
                 line=(style,line) 
         self.body.add_line(line)
@@ -201,6 +201,8 @@ You can also asynchronously output messages with Commander.output('message') """
        
     ''' output given text to current line '''   
     def output_text(self, text, style=None):
+        #remove \r https://github.com/urwid/urwid/issues/209
+        text = text.replace("\r", "") 
         if style and style in self._output_styles:
                 text=(style,text) 
         self.body.add_text(text)

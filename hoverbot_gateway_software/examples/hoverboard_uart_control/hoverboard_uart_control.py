@@ -100,18 +100,29 @@ class HoverboardUART :
                 text = data.decode("utf-8")
                 # Add timestamp in ms
                 time_str = HoverboardUART.getTime() 
-                # Append char indicating some data have been received from hoverbot
+                
+                # last char received was a new line, add it to beginning of new chars received 
                 if self._is_last_newline :
-                    text = time_str + ' < ' + text 
-                if text[-1:] == '\n':
-                    self._is_last_newline = True
-                    # Insert char indicating some data have been received from hoverbot
-                    text = text[:-1].replace('\n', '\n' + time_str + ' < ') 
-                    text = text + '\n'
-                else :
-                    text = text.replace('\n', '\n' + time_str + ' < ') 
+                    text = '\n' + text 
                     self._is_last_newline = False
-                self._uart_term.output_text(text, 'green') 
+                if text[-1:] == '\n':
+                    # remove last char => timestamp will be added to next log
+                    text = text[:-1]
+                    self._is_last_newline = True
+                    
+                # split lines to add timestamp to each line 
+                if '\n' in text :
+                    lines = text.split('\n')
+                    first_index=0 
+                    # First non empty string must not be added as a new line
+                    if len(lines[0]) > 0 :	
+                        self._uart_term.output_text(lines[0], 'green') 
+                        first_index = 1 
+                    for line in lines[first_index:] :
+                        if len(line) > 0 : 
+                            self._uart_term.output_line(time_str + ' < ' + line, 'green') 
+                else:
+                    self._uart_term.output_text(text, 'green') 
                  
         except OSError as e :
             self._uart_term.output_line("Error in stream... try to reconnect", 'error')
@@ -203,7 +214,7 @@ class HoverboardUART :
                 speed1 = float(args[0])
                 speed2 = float(args[1])
                 rampUpDur = int(args[2])
-            except Exception as ValueError :
+            except ValueError as e:
                raise Exception('Invalid argument given\n{}'.format(usage))
             ''' send command to hoverboard in LE'''
             self._outer.setSpeed(speed1, speed2, rampUpDur); 
@@ -284,7 +295,6 @@ def main(argv=None):
         t.start()
         
         while(1) :
-            #pass
             hoverboardUART.updateTerm()
 
     except KeyboardInterrupt as k:
