@@ -35,13 +35,16 @@ from optparse import OptionParser
 from commander import *
 import struct
 from enum import IntEnum
+from motor_loop_monitor import MotorLoopMonitor 
+import traceback
+import warnings
 
     
 ''' Hoverboard interfacing threw UART '''
 class HoverboardUART :
 
     def __init__(self, port):
-        ''' uart will be connected after a connectUART() call  - pass a None port to 
+        ''' uart will be connected after a connect_uart() call  - pass a None port to 
         not connect UART now '''
         self._serial = serial.Serial(
             port=None,
@@ -56,47 +59,80 @@ class HoverboardUART :
         self._uart_term = Commander("HOVERBOT term", input_edit=HoverboardUART.InputHoverboard(self), cmd_cb=self._cmds)
         self._is_last_newline = True 
         self._speed = (0, 0) 
+        self._motor_loop_monitor = MotorLoopMonitor() 
+        self._motor_loop_monitor.add_graph('motor_1 PID debug', 'setpoint', 'm') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'input', 'y') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'output', 'k') 
+        self._motor_loop_monitor.add_graph('motor_2 PID debug', 'setpoint', 'm') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'input', 'y') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'output', 'k') 
+        # timecode set on hoverbot, on remote, use a relative timestamp 
+        self._pid_debug_rel_tc = None
+        self._uart_th = None 
+        self._stop_uart_th = True 
+
+        self._pid_data_lock = threading.Lock()
+        self._new_pid_data = [] 
+        self._display_pid = False
         
-    def connectUART(self, nbTries) :
-        self._uart_term.output_line("try to open port {}...".format(self._serial._port), 'normal')
+        
+    def display_pid_plots(self):
+        # start here capture of pid logs  
+        self._pid_debug_tc = datetime.now()
+        self._motor_loop_monitor.start_display() 
+        self._display_pid = True 
+        
+        
+    def close_pid_plots(self):
+        self._motor_loop_monitor.stop_display() 
+        self._display_pid = False 
 
-        while(1) :
-            try :
-                self._serial.open() 
-                break
-
-            except Exception as e :
-                nbTries = nbTries - 1
-                time.sleep(0.01)
-                if nbTries == 0 :
-                    raise 
-
-        if self._serial.isOpen() :
-            self._uart_term.output_line("Port {} opened".format(self._serial._port), 'normal')
-        else : 
-            self._uart_term.output_line("Port {} not opened - exit".format(self._serial._port), 'error')
-            return 
-
-        while(1) :
-            self.loop()
 
     def loop(self) :
-        self.readUART()
-    
-    def updateTerm(self):
-        self._uart_term.loop() 
+        graph_updated = False 
+        with self._pid_data_lock :
+            if len(self._new_pid_data) > 0 :
+                for new_data in self._new_pid_data : 
+                    # Update of plot data must be done in main thread. If not it doesn't work!
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[2], tc=(new_data[0] - self._pid_debug_tc).total_seconds(), line='setpoint')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3], tc=(new_data[0] - self._pid_debug_tc).total_seconds(), line='input')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[4], tc=(new_data[0] - self._pid_debug_tc).total_seconds(), line='output')
+                graph_updated = True 
+                self._new_pid_data.clear()
+                
+        # be sure UI updated out of any protected zone
+        if self._display_pid and graph_updated : 
+            # Updating display can take some 100ms 
+            self._motor_loop_monitor.update_display() 
         
+        
+    def open(self):
+        # run UART in a separate thread 
+        self._uart_th = Thread(target=self._connect_uart, args=(1,))
+        self._stop_uart_th = False 
+        self._uart_th.daemon=True
+        self._uart_th.start()
+        self._start_term()
+
 
     def close(self) :
         if self._serial and self._serial.isOpen() :
             self._serial.close()
             self._serial = None
+        if self._display_pid :
+            self.close_pid_plots()
+        self._stop_uart_th = True
+        while  self._uart_th and self._uart_th.is_alive() : 
+           time.sleep(0.1) 
+        self._stop_term()
+
 
     def readUART(self) :
         try :
             # read all that is there or wait for one byte
             data = self._serial.read(self._serial.in_waiting or 1)
             if data:
+                data = self.handle_hoverbot_data(data) 
                 text = data.decode("utf-8")
                 # Add timestamp in ms
                 time_str = HoverboardUART.getTime() 
@@ -123,17 +159,55 @@ class HoverboardUART :
                             self._uart_term.output_line(time_str + ' < ' + line, 'green') 
                 else:
                     self._uart_term.output_text(text, 'green') 
-                 
+        except UnicodeDecodeError :
+            self._uart_term.output_line("bad byte received", 'error')
+            
         except OSError as e :
             self._uart_term.output_line("Error in stream... try to reconnect", 'error')
             if self._serial.isOpen :
                 self._serial.close()
-                self.connectUART(1000)
+                self._connect_uart(1000)
                 
+                
+    '''
+    Data received from UART are logged.
+    Some specific data received from UART needs an additional handling
+    ''' 
+    def handle_hoverbot_data(self, data) :
+        # Handle here all hoverboard specific commands 
+        data = self.handle_pid_log(data)  
+        return data 
+                
+                
+    def handle_pid_log(self, data):
+        while HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG in data :
+            try:  
+                with self._pid_data_lock :
+                    cmd_index = data.index(HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG)
+                    if cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH <= len(data) :
+                        cmd_id, motor_id, pid_setpoint, pid_input, pid_output  = (struct.unpack('<BBfff', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH]))
+                        
+                        if self._display_pid : 
+                            self._new_pid_data.append((datetime.now(), motor_id+1, pid_setpoint, pid_input, pid_output)) 
+                        # remove handled command from data
+                        data = data[:cmd_index] + data[cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH:] 
+                    else :
+                        new_data = []
+                        new_data = self._serial.read(self._serial.in_waiting or 1)
+                        if new_data :
+                            data = data + new_data
+                        else :
+                            time.sleep(0.01)
+            except ValueError :
+                # no more command to handle 
+                pass
+        return data 
+        
+
     def setSpeed(self, speed1, speed2, rampUpDur):
         try :
             if self._serial and self._serial.is_open :
-                data_to_send = struct.pack('<BffI', HoverboardUART.HoverboardCmd.CmdId.SET_SPEED, speed1, speed2, rampUpDur)
+                data_to_send = struct.pack('<BffI', HoverboardUART.HoverboardCmd.MasterCmdId.SET_SPEED, speed1, speed2, rampUpDur)
                 self._serial.write(data_to_send)
                 self._speed=(speed1, speed2) 
             else :
@@ -141,10 +215,11 @@ class HoverboardUART :
         except Exception as e:
             raise Exception('cannot write command to uart - {}'.format(e))
     
+    
     def stop(self):
         try :
             if self._serial and self._serial.is_open :
-                data_to_send = struct.pack('<B', HoverboardUART.HoverboardCmd.CmdId.STOP)
+                data_to_send = struct.pack('<B', HoverboardUART.HoverboardCmd.MasterCmdId.STOP)
                 self._serial.write(data_to_send)
                 self._speed = (0, 0) 
             else :
@@ -152,16 +227,54 @@ class HoverboardUART :
         except Exception as e:
             raise Exception('cannot write command to uart - {}'.format(e))
         
+        
     def getTime() :
        return datetime.now().strftime("%H:%M:%S.%f")[:-3]  
+
+
+    def _start_term(self):
+        #Update terminal 
+        self._uart_term.start_loop() 
+        
+        
+    def _stop_term(self):
+        #Update terminal 
+        self._uart_term.stop_loop() 
+
+
+    def _connect_uart(self, nbTries) :
+        self._uart_term.output_line("try to open port {}...".format(self._serial._port), 'normal')
+
+        while True and not self._stop_uart_th :
+            try :
+                self._serial.open() 
+                break
+
+            except Exception as e :
+                nbTries = nbTries - 1
+                time.sleep(0.01)
+                if nbTries == 0 :
+                    raise Exception("cannot open port {}".format(self._serial._port)) 
+
+        if self._serial.isOpen() :
+            self._uart_term.output_line("Port {} opened".format(self._serial._port), 'normal')
+        else : 
+            self._uart_term.output_line("Port {} not opened - exit".format(self._serial._port), 'error')
+            return 
+
+        self._serial.reset_input_buffer()
+        while True and not self._stop_uart_th :
+            self.readUART()
 
 
     ''' INNER CLASSES '''
     class InputHoverboard(Input) :
         
+        
         def __init__(self, outer, got_focus=None):
             self._outer = outer 
             super().__init__(got_focus)
+            
             
         def keypress(self, size, key):
             # Catch here command shortcuts 
@@ -192,18 +305,29 @@ class HoverboardUART :
 
             return super().keypress(size, key)
             
+            
     ''' Hoverboard commands '''
     class HoverboardCmd(Command):
-        class CmdId(IntEnum):
+        class MasterCmdId(IntEnum):
             SET_SPEED = 0
             POWER_ON  = 1
             POWER_OFF = 2 
             STOP      = 3
+            
+            
+        class SlaveCmdId(IntEnum):
+            PID_LOG   = 1 
+            
+            
+        class SlaveCmdLength(IntEnum):
+            PID_LOG_LENGTH   = 14 
+        
         
         def __init__(self, outer, quit_commands=['q','quit','exit'], help_commands=['help','?', 'h']):
             Command.__init__(self, quit_commands, help_commands)
             self._outer = outer
             self._is_keypad_control = False
+            
             
         def do_set_speed(self, *args):
             usage = 'USAGE : set_speed speed1(float) speed2(float) ramp_up_duration(uint32)' 
@@ -220,11 +344,12 @@ class HoverboardUART :
             self._outer.setSpeed(speed1, speed2, rampUpDur); 
             return HoverboardUART.getTime() + ' > SET SPEED TO (speed1={}, speed2={} in {} ms)'.format(speed1, speed2, rampUpDur) 
         
+        
         def do_power_on(self, *args):
             usage = 'USAGE poweron'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
-                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.CmdId.POWER_ON)
+                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.POWER_ON)
                     self._outer._serial.write(data_to_send)
                     #TODO : get speed from hoverbot sensors
                     self._outer._speed = (0, 0) 
@@ -234,11 +359,12 @@ class HoverboardUART :
                 raise Exception('cannot write command to uart - {}'.format(e))
             return HoverboardUART.getTime() + ' > POWER_ON'
 
+
         def do_power_off(self, *args):
             usage = 'USAGE poweroff'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
-                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.CmdId.POWER_OFF)
+                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.POWER_OFF)
                     self._outer._serial.write(data_to_send)
                     #TODO : get speed from hoverbot sensors
                     self._outer._speed = (0, 0) 
@@ -248,11 +374,12 @@ class HoverboardUART :
                 raise Exception('cannot write command to uart - {}'.format(e))
             return HoverboardUART.getTime() + ' POWER_OFF'
         
+        
         def do_stop(self, *args):
             usage = 'USAGE stop'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
-                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.CmdId.STOP)
+                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.STOP)
                     self._outer._serial.write(data_to_send)
                 else :
                     raise Exception('cannot send command - uart not connected')
@@ -260,10 +387,12 @@ class HoverboardUART :
                 raise Exception('cannot write command to uart - {}'.format(e))
             return  HoverboardUART.getTime() + ' STOP'
         
+        
         def do_start_keypad_control(self, *args):
             usage = 'USAGE : start keypad control using numeric keypad'
             self._is_keypad_control = True
             return 'NOW in manual keypad control'
+        
         
         def do_stop_keypad_control(self, *args):
             usage = 'USAGE : stop keypad control using numeric keypad'
@@ -271,46 +400,67 @@ class HoverboardUART :
             return 'EXITING manual keypad control'
 
 
+# ALL warnings must be removed as it will be output to stdout
+# => bad 
+def fxn():
+    warnings.warn("deprecated", DeprecationWarning)
+
 def main(argv=None):
-    hoverboardUART = None
-    if argv is None:
-        argv = sys.argv[1:]
-    try:
-        # setup option parser
-        parser = OptionParser()
-        parser.add_option("-p", "--port", dest="port", default=None, help="Port of hoverboard Teensy UART (over FTDI)")
-        (opts, args) = parser.parse_args(argv)
 
-        if not opts.port :
-            parser.error("A valid port must be given\n")
-            sys.exit(2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fxn()
+        
+        hoverboardUART = None
+        if argv is None:
+            argv = sys.argv[1:]
+        try:
+            # setup option parser
+            parser = OptionParser()
+            parser.add_option("-p", "--port", dest="port", default=None, help="Port of hoverboard Teensy UART (over FTDI)")
+            (opts, args) = parser.parse_args(argv)
+
+            if not opts.port :
+                parser.error("A valid port must be given\n")
+                sys.exit(2)
+                
+            hoverboardUART = HoverboardUART(opts.port)
             
-        hoverboardUART = HoverboardUART(opts.port)
-        
-        # run UART in a separate thread 
-        def run():
-            hoverboardUART.connectUART(1)
-        t=Thread(target=run)
-        t.daemon=True
-        t.start()
-        
-        while(1) :
-            hoverboardUART.updateTerm()
+            # run UART in a separate thread 
+            def handle_uart():
+                hoverboardUART._connect_uart(1)
+            t=Thread(target=handle_uart)
+            t.daemon=True
+            t.start()
+            
+            hoverboardUART.open()
+            hoverboardUART.display_pid_plots()
+            while True :
+                hoverboardUART.loop()
+                #time.sleep(0.1) 
+                
+            if hoverboardUART :
+                hoverboardUART.close()
+                hoverboardUART = None 
 
-    except KeyboardInterrupt as k:
-        sys.stderr.write("program will exit\nBye!\n")
-        return 0
+        except KeyboardInterrupt as k:
+            if hoverboardUART :
+                hoverboardUART.close()
+                hoverboardUART = None 
+            sys.stderr.write("program will exit\nBye!\n")
+            return 0
 
-    except Exception as e:
-        sys.stderr.write("Exception in main thread : {} {}\n".format(e, e.__class__.__name__))
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        print(exc_type, fname, exc_tb.tb_lineno)
-        return 2
+        except Exception as e:
+            if hoverboardUART :
+                hoverboardUART.close()
+                hoverboardUART = None 
+            sys.stderr.write("Exception in main thread : {} {}\n".format(e, e.__class__.__name__))
+            traceback.print_exception(*sys.exc_info()) 
+            return 2
 
-    finally :
-        if hoverboardUART :
-            hoverboardUART.close()
+        finally :
+            # do not close hoverboarUART here, in order to display some data to stdout (and not in hoverbot terminal, object must be closed) 
+            pass 
 
 if __name__ == "__main__":
     sys.exit(main())
