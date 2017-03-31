@@ -172,6 +172,15 @@ You can also asynchronously output messages with Commander.output('message') """
         self._eloop_thread=threading.current_thread()
         self.eloop.run()
         
+    def stop_loop(self):
+        self._eloop_thread=None
+        self.eloop.stop()
+        
+    def start_loop(self, handle_mouse=False):
+        self.eloop=urwid.MainLoop(self, self.PALLETE, handle_mouse=handle_mouse)
+        self._eloop_thread=threading.current_thread()
+        self.eloop.start()
+        
     def on_line_entered(self,line):
         if self._cmd:
             try:
