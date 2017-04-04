@@ -38,6 +38,7 @@ from enum import IntEnum
 from motor_loop_monitor import MotorLoopMonitor 
 import traceback
 import warnings
+import logging
 
     
 ''' Hoverboard interfacing threw UART '''
@@ -108,6 +109,8 @@ class HoverboardUART :
             # Updating display can take some 100ms 
             self._motor_loop_monitor.update_display() 
         
+        self._uart_term.update()
+        
         
     def open(self):
         # run UART in a separate thread 
@@ -115,7 +118,7 @@ class HoverboardUART :
         self._stop_uart_th = False 
         self._uart_th.daemon=True
         self._uart_th.start()
-        #self._start_term()
+        self._start_term()
 
 
     def close(self) :
@@ -178,7 +181,6 @@ class HoverboardUART :
     ''' 
     def handle_hoverbot_data(self, data) :
         # Handle here all hoverboard specific commands 
-
         cmd_index, data = self._detect_preamble(data)
         
         if cmd_index != -1 : 
@@ -441,6 +443,15 @@ def main(argv=None):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fxn()
+       
+        # Use root logger 
+        hdlr = logging.FileHandler('/var/tmp/hoverbot.log')
+        formatter = logging.Formatter('%(asctime)s %(filename)s %(message)s')
+        hdlr.setFormatter(formatter)
+        logging.getLogger().addHandler(hdlr) 
+        logging.getLogger().setLevel(logging.INFO) 
+        
+        logging.info('Hoverbot uart control')
         
         hoverboardUART = None
         if argv is None:

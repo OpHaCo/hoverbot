@@ -176,9 +176,14 @@ You can also asynchronously output messages with Commander.output('message') """
         self._eloop_thread=None
         self.eloop.stop()
         
+    def update(self, handle_mouse=False):
+        self.eloop.process_input(self.eloop.screen.get_input())
+        self.eloop.draw_screen() 
+        
     def start_loop(self, handle_mouse=False):
         self.eloop=urwid.MainLoop(self, self.PALLETE, handle_mouse=handle_mouse)
         self._eloop_thread=threading.current_thread()
+        # Use a non blocking loop 
         self.eloop.start()
         
     def on_line_entered(self,line):
