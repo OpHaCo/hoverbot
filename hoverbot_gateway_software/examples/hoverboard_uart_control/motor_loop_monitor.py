@@ -30,6 +30,7 @@ import numpy as np
 import random
 import sys
 import matplotlib.animation as animation
+import logging
 
 class MotorLoopMonitor():
     
@@ -37,11 +38,25 @@ class MotorLoopMonitor():
         global _instance 
         self._graphs={} 
         self._fig = plt.figure()
+        self._fig.canvas.mpl_connect('key_press_event', self._keypress)
         self._start_display_time = None 
-        self._display = False
+        self._pause_display = False
         # interactive graphs
         plt.ion()
 
+
+    def clear_graphs(self) :
+        for graph_name in self._graphs :
+            for line_name in self._graphs[graph_name][1] :
+                # clear time and y for each graph 
+                self._graphs[graph_name][1][line_name] = (self._graphs[graph_name][1][line_name][0], [], [])
+                
+                # clear line data
+                self._graphs[graph_name][1][line_name][0].set_xdata([])
+                self._graphs[graph_name][1][line_name][0].set_ydata([])
+            
+        self.update_display() 
+        
 
     def add_value(self, graph_name, y, line, tc=None):
         assert graph_name in self._graphs, 'Graph {} has not beed added - add_graph must be called'.format(graph_name)
@@ -57,9 +72,10 @@ class MotorLoopMonitor():
         time_values.append(tc)
         y_values.append(y)
         
-        # update line, graph will be updated on update_display call
-        curr_plot_line.set_xdata(np.append(curr_plot_line.get_xdata(), tc)) 
-        curr_plot_line.set_ydata(np.append(curr_plot_line.get_ydata(), y)) 
+        if not self._pause_display : 
+            # update line, graph will be updated on update_display call
+            curr_plot_line.set_xdata(np.append(curr_plot_line.get_xdata(), tc)) 
+            curr_plot_line.set_ydata(np.append(curr_plot_line.get_ydata(), y)) 
         
 		# update x and ylim to show all points:
         xmin = float("inf") 
@@ -102,17 +118,25 @@ class MotorLoopMonitor():
         #  self._fig.canvas.draw(), cannot replace it 
         plt.pause(0.001)   
         self.update_display()  
-        self._display = True 
     
     
     def stop_display(self):
         plt.close()
-        self._display = False 
 
 
     def pause_display(self):
-        self._display = False
+        self._pause_display = True
     
+    
+    def resume_display(self):
+        for graph_name in self._graphs :
+            for line_name in self._graphs[graph_name][1] :
+                # Update graphs with values added during pause 
+                self._graphs[graph_name][1][line_name][0].set_xdata(np.asarray(self._graphs[graph_name][1][line_name][1]))
+                self._graphs[graph_name][1][line_name][0].set_ydata(np.asarray(self._graphs[graph_name][1][line_name][2]))
+            
+        self.update_display() 
+        self._pause_display = False
     
     '''
     Add line to given graph
@@ -122,7 +146,7 @@ class MotorLoopMonitor():
         
         # Draw an empty plot with legend
         # shortcut : "--bo" = '--' linestyle, 'b' for blue, 'o' marker
-        new_line, = self._graphs[graph_name][0].plot([], [], label=line_name, linestyle='--', marker='o', color=color)		
+        new_line, = self._graphs[graph_name][0].plot([], [], label=line_name, linestyle='--', marker='o', ms=1, color=color)		
         
         #(line, x, y, color) 
         self._graphs[graph_name][1][line_name] = (new_line, [], [], color)
@@ -161,6 +185,18 @@ class MotorLoopMonitor():
         # a fast solution is to call these methods 
         self._fig.canvas.update()
         self._fig.canvas.flush_events()
+        
+    
+    def _keypress(self, event):
+        if event.key == 'c' :
+            logging.debug('reset graphs') 
+            self.clear_graphs() 
+        elif event.key == 'p' :
+            logging.debug('pause graphs') 
+            self.pause_display() 
+        elif event.key == 'r' :
+            logging.debug('resume graphs') 
+            self.resume_display() 
         
 
 def motor_loop_test() :
