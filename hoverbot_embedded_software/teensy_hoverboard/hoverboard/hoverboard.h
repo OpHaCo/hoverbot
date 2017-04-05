@@ -143,14 +143,13 @@ class Hoverboard
     PIDControl _pid1, _pid2;
     /** PID timer */
     IntervalTimer _pidTimer;
-    static const uint8_t LAST_TICKS_WINDOW_LENGTH = 2;
-    int32_t _as32_lastTicks1[LAST_TICKS_WINDOW_LENGTH];
-    int32_t _as32_lastTicks2[LAST_TICKS_WINDOW_LENGTH]; 
     
     float _f_ticksFil1;
     float _f_ticksFil2; 
     int32_t _s32_ticks1;
     int32_t _s32_ticks2; 
+    int32_t _s16_gyrTarget1; 
+    int32_t _s16_gyrTarget2; 
     int32_t _s32_lastTicks1;
     int32_t _s32_lastTicks2; 
     uint8_t _u8_lastTickIndex; 

@@ -59,7 +59,7 @@ const uint8_t Hoverboard::GYRO_CONTACT_OPENED_BYTE = 170;
 const uint16_t Hoverboard::GYRO_FRAME_START = 256;
 const uint16_t Hoverboard::PID_PERIOD_MS = 200;
 const uint32_t Hoverboard::HOVERBOARD_CMD_PREAMBLE = 0xABCDEF00; 
-const uint8_t Hoverboard::PID_LOG_CMD_LENGTH = 22; 
+const uint8_t Hoverboard::PID_LOG_CMD_LENGTH = 24; 
 const uint8_t Hoverboard::PID_LOG_CMD_ID = 1; 
 const float Hoverboard::LOW_PASS_FIL_CONST = 0.2; 
 const uint8_t Hoverboard::PID_INPUT_FACT = 5; 
@@ -94,12 +94,11 @@ Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
   _f_ticksFil1(0.0),
   _f_ticksFil2(0.0),
   _s32_ticks1(0),
-  _s32_ticks2(0)
+  _s32_ticks2(0),
+  _s16_gyrTarget1(0), 
+  _s16_gyrTarget2(0) 
 {
    
-  memset(_as32_lastTicks1, 0, sizeof(_as32_lastTicks1));
-  memset(_as32_lastTicks2, 0, sizeof(_as32_lastTicks2));
-  
   if(arg_config._p_motor1Conf)
   {
     arg_config._p_motor1Conf->_itCbs._pfn_hall1It = Hoverboard::motor1Hall1It;
@@ -291,6 +290,15 @@ void Hoverboard::idleControl(void)
     state = _e_state; 
   }
   
+  
+  static long time = millis();
+  if(millis() - time > 30)
+  {
+  pidLog(0);
+  pidLog(1);
+  time = millis(); 
+  }
+  
   if(_e_state == PID_CONTROL)
   {
     if(_pid1.PIDOutputGet() > 0.0 and _pid2.PIDOutputGet() < 0 
@@ -305,13 +313,6 @@ void Hoverboard::idleControl(void)
       _instance->simulateGyro2(-_instance->_pid2.PIDOutputGet());
     }
 
-    static long time = millis();
-    if(millis() - time > 30)
-    {
-    pidLog(0);
-		pidLog(1);
-    time = millis(); 
-    }
   }
   else if(_e_state == COMMON_SPEED)
   {
@@ -401,15 +402,17 @@ Hoverboard::EHoverboardState Hoverboard::getState(void)
 
 void Hoverboard::simulateGyro1(int16_t arg_s16_target)
 {
-	  /** send a frame simulating gyroscope move on gyro 
-	  * daughterboard 1 */
-	  uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
-		GYRO_FRAME_START, 
-		(uint8_t)(arg_s16_target & 0xff), 
-		(uint8_t)(arg_s16_target >> 8 & 0xff), 
-		(uint8_t)(arg_s16_target & 0xff), 
-		(uint8_t)(arg_s16_target >> 8 & 0xff), 
-		GYRO_CONTACT_CLOSED_BYTE};
+  _s16_gyrTarget1 = arg_s16_target;
+
+  /** send a frame simulating gyroscope move on gyro 
+   * daughterboard 1 */
+  uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
+    GYRO_FRAME_START, 
+    (uint8_t)(arg_s16_target & 0xff), 
+    (uint8_t)(arg_s16_target >> 8 & 0xff), 
+    (uint8_t)(arg_s16_target & 0xff), 
+    (uint8_t)(arg_s16_target >> 8 & 0xff), 
+    GYRO_CONTACT_CLOSED_BYTE};
 
 	for(uint8_t index = 0; index < 6; index++)
 	{
@@ -419,9 +422,11 @@ void Hoverboard::simulateGyro1(int16_t arg_s16_target)
     
 void Hoverboard::simulateGyro2(int16_t arg_s16_target)
 {
-    /** send a frame simulating gyroscope move on gyro 
-    * daughterboard 2 */
-    uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
+  _s16_gyrTarget2 = arg_s16_target;
+  
+  /** send a frame simulating gyroscope move on gyro 
+   * daughterboard 2 */
+  uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
     GYRO_FRAME_START, 
     (uint8_t)(arg_s16_target & 0xff), 
     (uint8_t)(arg_s16_target >> 8 & 0xff), 
@@ -521,8 +526,6 @@ void Hoverboard::startPID(void)
   _f_ticksFil2 = 0.0;
   _s32_ticks1 = 0;
   _s32_ticks2 = 0;
-  memset(_as32_lastTicks1, 0, sizeof(_as32_lastTicks1));
-  memset(_as32_lastTicks2, 0, sizeof(_as32_lastTicks2));
   
   _pidTimer.begin(Hoverboard::pidTimerIt, PID_PERIOD_MS*1000); 
   _e_state = PID_CONTROL; 
@@ -542,16 +545,19 @@ void Hoverboard::pidLog(uint8_t arg_u8_motor_id)
 	uint8_t id = 0;
 	float loc_f_tempVal = 0.0f;
   int32_t loc_s32_rawInput = 0;
+  int16_t loc_s16_gyrTarget = 0; 
 
   if(arg_u8_motor_id == 0)
   {
 		loc_p_pidControl = &_pid1;
     loc_s32_rawInput = _s32_ticks1;
+    loc_s16_gyrTarget = _s16_gyrTarget1;
   }
   else if(arg_u8_motor_id == 1)
   {
 		loc_p_pidControl = &_pid2;
     loc_s32_rawInput = _s32_ticks2;
+    loc_s16_gyrTarget = _s16_gyrTarget2;
   }
   else
   {
@@ -609,6 +615,11 @@ void Hoverboard::pidLog(uint8_t arg_u8_motor_id)
   loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
   loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
   loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF; 
+  
+  /** gyr_target */
+  loc_au8_buff[id++] = loc_s16_gyrTarget & 0xFF;
+  loc_au8_buff[id++] = (loc_s16_gyrTarget >>8) & 0xFF;
+  
 
 	Serial.write(loc_au8_buff, sizeof(loc_au8_buff));
 } 

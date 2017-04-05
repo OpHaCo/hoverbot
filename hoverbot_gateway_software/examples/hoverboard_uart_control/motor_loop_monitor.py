@@ -146,7 +146,7 @@ class MotorLoopMonitor():
         
         # Draw an empty plot with legend
         # shortcut : "--bo" = '--' linestyle, 'b' for blue, 'o' marker
-        new_line, = self._graphs[graph_name][0].plot([], [], label=line_name, linestyle='--', marker='o', ms=1, color=color)		
+        new_line, = self._graphs[graph_name][0].plot([], [], label=line_name, linestyle='--', marker='o', ms=0.8, color=color, linewidth=0.5)		
         
         #(line, x, y, color) 
         self._graphs[graph_name][1][line_name] = (new_line, [], [], color)

@@ -66,11 +66,13 @@ class HoverboardUART :
         self._motor_loop_monitor.add_line('motor_1 PID debug', 'input', 'c') 
         self._motor_loop_monitor.add_line('motor_1 PID debug', 'output', 'k') 
         self._motor_loop_monitor.add_line('motor_1 PID debug', 'error', 'r') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'gyr', 'b') 
         self._motor_loop_monitor.add_graph('motor_2 PID debug', 'setpoint', 'm') 
         self._motor_loop_monitor.add_line('motor_2 PID debug', 'filtered_input', 'y') 
         self._motor_loop_monitor.add_line('motor_2 PID debug', 'input', 'c') 
         self._motor_loop_monitor.add_line('motor_2 PID debug', 'output', 'k') 
         self._motor_loop_monitor.add_line('motor_2 PID debug', 'error', 'r') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'gyr', 'b') 
         # timecode set on hoverbot, on remote, use a relative timestamp 
         self._pid_debug_rel_tc = None
         self._uart_th = None 
@@ -107,6 +109,7 @@ class HoverboardUART :
                     self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='setpoint')
                     self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[4], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='output')
                     self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3]-new_data[2], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='error')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[6], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='gyr')
                 graph_updated = True 
                 self._new_pid_data.clear()
                 
@@ -254,12 +257,12 @@ class HoverboardUART :
             try:  
                 cmd_index = data.index(HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG)
                 if cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH <= len(data) :
-                    cmd_id,tc, motor_id, pid_input, pid_setpoint, pid_output, raw_input  = (struct.unpack('<BIBfffi', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH]))
-                    logging.info('debug pid frame : (tc={}, motor_id={}, pid_setpoint={}, pid_filtered_input={}, input={}, pid_output={})'.format(tc, motor_id, pid_setpoint, pid_input, raw_input, pid_output)) 
+                    cmd_id,tc, motor_id, pid_input, pid_setpoint, pid_output, raw_input, gyr  = (struct.unpack('<BIBfffih', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH]))
+                    logging.info('debug pid frame : (tc={}, motor_id={}, pid_setpoint={}, pid_filtered_input={}, input={}, pid_output={}, gyr={})'.format(tc, motor_id, pid_setpoint, pid_input, raw_input, pid_output, gyr)) 
                     
                     if self._display_pid : 
                         with self._pid_data_lock :
-                            self._new_pid_data.append((tc, motor_id+1, pid_input, pid_setpoint, pid_output, raw_input)) 
+                            self._new_pid_data.append((tc, motor_id+1, pid_input, pid_setpoint, pid_output, raw_input, gyr)) 
                     # remove handled command from data
                     data = data[:cmd_index] + data[cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH:] 
                 else :
@@ -365,7 +368,7 @@ class HoverboardUART :
             
             
         class SlaveCmdLength(IntEnum):
-            PID_LOG_LENGTH   = 22 
+            PID_LOG_LENGTH   = 24
         
         
         def __init__(self, outer, quit_commands=['q','quit','exit'], help_commands=['help','?', 'h']):
