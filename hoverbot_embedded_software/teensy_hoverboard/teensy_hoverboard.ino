@@ -96,7 +96,6 @@ class HoverboardListenerExample : public HoverboardListener
 /**************************************************************************
  * Static variables definitions
  **************************************************************************/
-static int16_t currPos = 0;
 static uint8_t _au8_rcvCmd[MAX_CMD_LENGTH] = {0};
 
 /** ItCBS will be filled by hoverboard */
@@ -235,7 +234,6 @@ void HoverboardListenerExample::sendCmd(EFeedbackCmds arg_e_cmdType, uint8_t arg
 
 void HoverboardListenerExample::handleCommand(uint8_t arg_u8_cmd[], uint16_t arg_u16_cmdLength)
 {
-  uint16_t targetSpeed = 200;  
   if(arg_u8_cmd[0] == POWER_ON && arg_u16_cmdLength == POWER_ON_CMD_LENGTH)
   {
     LOG_INFO_LN("POWER_ON");

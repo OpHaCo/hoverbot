@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <Arduino.h>
 #include <brushless_hall_sensor.h>
+#include <pid_controller.h>
 
 #include "hoverboard_listener.h"
 
@@ -62,13 +63,14 @@ class Hoverboard
     }EHoverboardErr;
     
     typedef enum {
-      POWER_OFF,
+      POWER_OFF = 0,
       CALIBRATING,
       POWER_ON,
       POWERING_ON,
       POWERING_OFF,
       IDLE, 
       COMMON_SPEED,
+      PID_CONTROL, 
       OUT_OF_ENUM_STATE
     }EHoverboardState;
     
@@ -118,9 +120,11 @@ class Hoverboard
     /** Pin to check hoverboard power status */
     const uint16_t _u16_powerStatPin; 
     /** Hoverboard must always get some control commands
-     * => no delay fonction > 50ms must be called, or an error 
+     * => no function calls > 50ms must be called, or an error 
      * on hoverboard side will be detected.
-     * Timer is used to handle delay asynchronously 
+     * This timer is used to handle delay asynchronously (e.g. to
+     * simulate a short button press for power on/off)
+     * 
      **/
     IntervalTimer _timer;
     volatile EHoverboardState _e_state;
@@ -135,6 +139,22 @@ class Hoverboard
     uint32_t _u32_events; 
     HoverboardListener* _p_listener; 
     
+    /** PID on 2 wheels */ 
+    PIDControl _pid1, _pid2;
+    /** PID timer */
+    IntervalTimer _pidTimer;
+    static const uint8_t LAST_TICKS_WINDOW_LENGTH = 2;
+    int32_t _as32_lastTicks1[LAST_TICKS_WINDOW_LENGTH];
+    int32_t _as32_lastTicks2[LAST_TICKS_WINDOW_LENGTH]; 
+    
+    float _f_ticksFil1;
+    float _f_ticksFil2; 
+    int32_t _s32_ticks1;
+    int32_t _s32_ticks2; 
+    int32_t _s32_lastTicks1;
+    int32_t _s32_lastTicks2; 
+    uint8_t _u8_lastTickIndex; 
+    
     static Hoverboard* _instance; 
     
     static const uint8_t SHORT_PRESS_DUR_MS;
@@ -145,7 +165,13 @@ class Hoverboard
 		/** Byte sent in gyro frame indicating user does not have its feet on gyro board */
 		static const uint8_t GYRO_CONTACT_OPENED_BYTE;
 		static const uint16_t GYRO_FRAME_START;
+    static const uint16_t PID_PERIOD_MS; 
+    static const uint32_t HOVERBOARD_CMD_PREAMBLE; 
 
+    static const uint8_t PID_LOG_CMD_ID; 
+    static const uint8_t PID_LOG_CMD_LENGTH; 
+    static const uint8_t PID_INPUT_FACT; 
+    static const float LOW_PASS_FIL_CONST; 
     /** public methods */
   public :
     Hoverboard(const Hoverboard::Config&);
@@ -198,6 +224,10 @@ class Hoverboard
      */
     void setCommonSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur = 2000);
     void setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2);
+    void startPID(void); 
+    void stopPID(void); 
+    void pidLog(uint8_t arg_u8_motor_id); 
+    static void pidTimerIt(void); 
     static void timerIt(void);
     static void powerOffIt(void); 
     

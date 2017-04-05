@@ -92,14 +92,18 @@ class BrushlessHallSensor
         _itCbs = arg_itCbs;
       }
     };
+    
+    
+    /** public members */  
+  public :
+    /** Number of ticks for a 2pi rotation */
+    static const float NB_TICKS_ROTA;
 
     /** private members */  
   private :
     Config _config;
     volatile int32_t _s32_hallTicks, _s32_periodHallTicks, _s32_lastPeriodHallTicks;
     volatile EHallSensor _e_lastHallSensed;
-    /** Number of ticks for a 2pi rotation */
-    static const float NB_TICKS_ROTA;
 
     /** Timer used to capture speed */
     IntervalTimer _captureTimer;

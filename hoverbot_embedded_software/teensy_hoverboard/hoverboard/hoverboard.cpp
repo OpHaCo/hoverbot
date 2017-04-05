@@ -39,6 +39,7 @@
 #include <logger_config.h>
 #include <IntervalTimer.h>
 #include <logger.h>
+#include <pid_controller.h>
 
 /**************************************************************************
  * Manifest Constants
@@ -56,6 +57,12 @@ const uint8_t Hoverboard::GYRO_FRAME_LENGTH = 6;
 const uint8_t Hoverboard::GYRO_CONTACT_CLOSED_BYTE = 85;
 const uint8_t Hoverboard::GYRO_CONTACT_OPENED_BYTE = 170;
 const uint16_t Hoverboard::GYRO_FRAME_START = 256;
+const uint16_t Hoverboard::PID_PERIOD_MS = 200;
+const uint32_t Hoverboard::HOVERBOARD_CMD_PREAMBLE = 0xABCDEF00; 
+const uint8_t Hoverboard::PID_LOG_CMD_LENGTH = 22; 
+const uint8_t Hoverboard::PID_LOG_CMD_ID = 1; 
+const float Hoverboard::LOW_PASS_FIL_CONST = 0.2; 
+const uint8_t Hoverboard::PID_INPUT_FACT = 5; 
 
 Hoverboard* Hoverboard::_instance = NULL;
 
@@ -77,8 +84,22 @@ Hoverboard::Hoverboard(const Hoverboard::Config& arg_config):
   _s16_speedRampUp(0),
   _f_commonSpeed(0.0), 
   _p_listener(NULL),
-  _u32_events(0)
+  _pid1(0.2, 0.8, 0.80, (float)(PID_PERIOD_MS)/1000.0, -1000, 1000, AUTOMATIC, DIRECT), 
+  _pid2(0.2, 0.8, 0.80, (float)(PID_PERIOD_MS)/1000.0, -1000, 1000, AUTOMATIC, DIRECT), 
+  _pidTimer(), 
+  _u32_events(0),
+  _u8_lastTickIndex(0), 
+  _s32_lastTicks1(0), 
+  _s32_lastTicks2(0), 
+  _f_ticksFil1(0.0),
+  _f_ticksFil2(0.0),
+  _s32_ticks1(0),
+  _s32_ticks2(0)
 {
+   
+  memset(_as32_lastTicks1, 0, sizeof(_as32_lastTicks1));
+  memset(_as32_lastTicks2, 0, sizeof(_as32_lastTicks2));
+  
   if(arg_config._p_motor1Conf)
   {
     arg_config._p_motor1Conf->_itCbs._pfn_hall1It = Hoverboard::motor1Hall1It;
@@ -178,7 +199,7 @@ Hoverboard::EHoverboardErr Hoverboard::powerOn(void)
   
 Hoverboard::EHoverboardErr Hoverboard::powerOnAsync(void)
 {
-    Serial.println("pwoeron"); 
+  LOG_INFO_LN("poweron"); 
   if(_e_state != POWER_ON || _e_state != POWERING_ON)
   {
     _f_speed1 = 0.0;
@@ -235,7 +256,12 @@ bool Hoverboard::isPowered(void)
 
 Hoverboard::EHoverboardErr Hoverboard::setSpeedAsync(float arg_f_speed1, float arg_f_speed2, uint32_t arg_u32_rampUpDur)
 {
-  if(_e_state == IDLE)
+  if(_e_state == PID_CONTROL)
+  {
+    _f_speed1 = arg_f_speed1; 
+    _f_speed2 = arg_f_speed2; 
+  }
+  else if(_e_state == IDLE)
   {
     setCommonSpeedAsync(arg_f_speed1, arg_f_speed2, arg_u32_rampUpDur); 
     setDifferentialSpeed(arg_f_speed1, arg_f_speed2);
@@ -258,7 +284,36 @@ void Hoverboard::idleControl(void)
   bool loc_b_notify = false;
   float loc_f_newSpeed = 0.0;
   
-  if(_e_state == COMMON_SPEED)
+  static EHoverboardState state = OUT_OF_ENUM_STATE;
+  if(_e_state != state)
+  {
+    LOG_INFO_LN("%d", _e_state);
+    state = _e_state; 
+  }
+  
+  if(_e_state == PID_CONTROL)
+  {
+    if(_pid1.PIDOutputGet() > 0.0 and _pid2.PIDOutputGet() < 0 
+        or _pid1.PIDOutputGet() < 0.0 and _pid2.PIDOutputGet() > 0)
+    {
+      _instance->simulateGyro1(_instance->_pid1.PIDOutputGet());
+      _instance->simulateGyro2(_instance->_pid2.PIDOutputGet());
+    }    
+    else 
+    {
+      _instance->simulateGyro1(_instance->_pid1.PIDOutputGet());
+      _instance->simulateGyro2(-_instance->_pid2.PIDOutputGet());
+    }
+
+    static long time = millis();
+    if(millis() - time > 30)
+    {
+    pidLog(0);
+		pidLog(1);
+    time = millis(); 
+    }
+  }
+  else if(_e_state == COMMON_SPEED)
   {
     /** Apply common speed during a duration depending on ramp up factor */
     /** Same rota direction => refer README.md - Gyro simualated target must from different
@@ -307,6 +362,9 @@ void Hoverboard::idleControl(void)
     if(POWERED_ON_EVENT & _u32_events)
     {
       _u32_events &= ~POWERED_ON_EVENT;
+      /** start PID controller on 2 wheels */ 
+      startPID();
+      
       if(_p_listener)
       {
         _p_listener->onPowerOn(); 
@@ -316,6 +374,8 @@ void Hoverboard::idleControl(void)
     if(POWERED_OFF_EVENT & _u32_events)
     {
       _u32_events &= ~POWERED_OFF_EVENT;
+      /** stop PID controller on 2 wheels */ 
+      stopPID();
       if(_p_listener)
       {
         _p_listener->onPowerOff(); 
@@ -341,9 +401,9 @@ Hoverboard::EHoverboardState Hoverboard::getState(void)
 
 void Hoverboard::simulateGyro1(int16_t arg_s16_target)
 {
-	/** send a frame simulating gyroscope move on gyro 
-	 * daughterboard 1 */
-	uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
+	  /** send a frame simulating gyroscope move on gyro 
+	  * daughterboard 1 */
+	  uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
 		GYRO_FRAME_START, 
 		(uint8_t)(arg_s16_target & 0xff), 
 		(uint8_t)(arg_s16_target >> 8 & 0xff), 
@@ -359,9 +419,9 @@ void Hoverboard::simulateGyro1(int16_t arg_s16_target)
     
 void Hoverboard::simulateGyro2(int16_t arg_s16_target)
 {
-  /** send a frame simulating gyroscope move on gyro 
-   * daughterboard 2 */
-  uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
+    /** send a frame simulating gyroscope move on gyro 
+    * daughterboard 2 */
+    uint16_t loc_au16_gyroFrame[GYRO_FRAME_LENGTH] = {
     GYRO_FRAME_START, 
     (uint8_t)(arg_s16_target & 0xff), 
     (uint8_t)(arg_s16_target >> 8 & 0xff), 
@@ -448,6 +508,148 @@ void Hoverboard::setDifferentialSpeed(float arg_f_speed1, float arg_f_speed2)
   LOG_DEBUG_LN("diff_speed (%f, %f)", 
      _f_diffSpeed,
      _f_diffSpeed); 
+}
+
+void Hoverboard::startPID(void) 
+{
+  /** Reset PID params */ 
+  _pid1.PIDReset(); 
+  _pid2.PIDReset(); 
+  _s32_lastTicks1 = _hallSensor1.getTicks(); ; 
+  _s32_lastTicks2 = _hallSensor2.getTicks(); ; 
+  _f_ticksFil1 = 0.0;
+  _f_ticksFil2 = 0.0;
+  _s32_ticks1 = 0;
+  _s32_ticks2 = 0;
+  memset(_as32_lastTicks1, 0, sizeof(_as32_lastTicks1));
+  memset(_as32_lastTicks2, 0, sizeof(_as32_lastTicks2));
+  
+  _pidTimer.begin(Hoverboard::pidTimerIt, PID_PERIOD_MS*1000); 
+  _e_state = PID_CONTROL; 
+} 
+
+void Hoverboard::stopPID(void) 
+{
+  _pidTimer.end();
+} 
+
+void Hoverboard::pidLog(uint8_t arg_u8_motor_id) 
+{
+  uint32_t * loc_pu32 = NULL;
+  uint8_t loc_au8_buff[sizeof(HOVERBOARD_CMD_PREAMBLE) + PID_LOG_CMD_LENGTH];
+  long tc = millis();
+	PIDControl* loc_p_pidControl;
+	uint8_t id = 0;
+	float loc_f_tempVal = 0.0f;
+  int32_t loc_s32_rawInput = 0;
+
+  if(arg_u8_motor_id == 0)
+  {
+		loc_p_pidControl = &_pid1;
+    loc_s32_rawInput = _s32_ticks1;
+  }
+  else if(arg_u8_motor_id == 1)
+  {
+		loc_p_pidControl = &_pid2;
+    loc_s32_rawInput = _s32_ticks2;
+  }
+  else
+  {
+    ASSERT(false);
+    return; 
+  }
+  loc_s32_rawInput = PID_INPUT_FACT*loc_s32_rawInput; 
+  
+   /** preamble */
+  loc_pu32 =(uint32_t*) &HOVERBOARD_CMD_PREAMBLE;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+
+  /** Cmd id */
+  loc_au8_buff[id++] = 1;
+  
+  /** timestamp */
+  loc_pu32 =(uint32_t*) &tc;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF;
+
+  loc_au8_buff[id++] = arg_u8_motor_id;
+
+  /** PID input */
+  loc_f_tempVal = loc_p_pidControl->PIDInputGet();
+  loc_pu32 = (uint32_t*)&loc_f_tempVal;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF;
+
+  /** PID setpoint */
+  loc_f_tempVal = loc_p_pidControl->PIDSetpointGet();
+  loc_pu32 = (uint32_t*)&loc_f_tempVal;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF;
+
+  /** PID output */
+  loc_f_tempVal = loc_p_pidControl->PIDOutputGet();
+  loc_pu32 = (uint32_t*)&loc_f_tempVal;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF; 
+
+  /** Raw input */
+  loc_pu32 = (uint32_t*)&loc_s32_rawInput;
+  loc_au8_buff[id++] = *loc_pu32 & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>8) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>16) & 0xFF;
+  loc_au8_buff[id++] = (*loc_pu32 >>24) & 0xFF; 
+
+	Serial.write(loc_au8_buff, sizeof(loc_au8_buff));
+} 
+
+void Hoverboard::pidTimerIt(void)
+{
+  _instance->_pid1.PIDSetpointSet(_instance->_f_speed1);
+  _instance->_pid2.PIDSetpointSet(_instance->_f_speed2);
+ 
+  /** update input */
+  _instance->_s32_ticks1 = (_instance->_hallSensor1.getTicks() - _instance->_s32_lastTicks1); 
+  _instance->_s32_ticks2 = (_instance->_hallSensor2.getTicks() - _instance->_s32_lastTicks2); 
+  _instance->_s32_lastTicks1 = _instance->_hallSensor1.getTicks();  
+  _instance->_s32_lastTicks2 = _instance->_hallSensor2.getTicks();  
+  
+  /** Apply a low pass filter on input */
+  _instance->_f_ticksFil1 =  _instance->_f_ticksFil1 - LOW_PASS_FIL_CONST*(_instance->_f_ticksFil1 - _instance->_s32_ticks1); 
+  _instance->_f_ticksFil2 =  _instance->_f_ticksFil2 - LOW_PASS_FIL_CONST*(_instance->_f_ticksFil2 - _instance->_s32_ticks2); 
+    
+  _instance->_pid1.PIDInputSet((float)(PID_INPUT_FACT)*(_instance->_f_ticksFil1));
+  _instance->_pid2.PIDInputSet((float)(PID_INPUT_FACT)*(_instance->_f_ticksFil2));
+    
+  _instance->_pid1.PIDCompute();
+  _instance->_pid2.PIDCompute();
+  
+  /** get output */
+  float loc_f_output1 = _instance->_pid1.PIDOutputGet(); 
+  float loc_f_output2 = _instance->_pid2.PIDOutputGet();  
+  
+  /** apply it */
+  if(_instance->_f_speed1 > 0.0 and _instance->_f_speed1 < 0 
+     or _instance->_f_speed1 < 0.0 and _instance->_f_speed1 > 0)
+  {
+    _instance->simulateGyro1(_instance->_pid1.PIDOutputGet());
+    _instance->simulateGyro2(-_instance->_pid2.PIDOutputGet());
+  }    
+  else 
+  {
+    _instance->simulateGyro1(_instance->_pid1.PIDOutputGet());
+    _instance->simulateGyro2(_instance->_pid2.PIDOutputGet());
+  } 
 }
 
 void Hoverboard::timerIt(void)
