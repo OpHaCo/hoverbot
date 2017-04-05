@@ -182,6 +182,9 @@ You can also asynchronously output messages with Commander.output('message') """
         
     def start_loop(self, handle_mouse=False):
         self.eloop=urwid.MainLoop(self, self.PALLETE, handle_mouse=handle_mouse)
+        # Here a small timeout 10ms is set in order to not block when get_input is called
+        # in update method
+        self.eloop.screen.set_input_timeouts(max_wait=0.01) 
         self._eloop_thread=threading.current_thread()
         # Use a non blocking loop 
         self.eloop.start()
