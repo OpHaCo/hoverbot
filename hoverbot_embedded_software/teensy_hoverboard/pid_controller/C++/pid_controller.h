@@ -102,6 +102,17 @@ PIDControl
                    PIDDirection controllerDirection);     	
         
         // 
+        // PID reset 
+        // Description:
+        //      Reset PID  
+        // Parameters:
+        //      None.
+        // Returns:
+        //      None 
+        //                     
+        void PIDReset(void); 
+        
+        // 
         // PID Compute
         // Description:
         //      Should be called on a regular interval defined by sampleTimeSeconds.
@@ -226,6 +237,14 @@ PIDControl
         // 
         inline void PIDSetpointSet(float setpoint) { this->setpoint = setpoint; }
         
+        // PID Setpoint Get
+        // Description:
+        // Parameters:
+        // Returns:
+        //      setpoint - The desired setpoint the PID controller will try to 
+        // 
+        inline float PIDSetpointGet(void) { return this->setpoint; }
+
         // 
         // PID Input Set
         // Description:
@@ -237,6 +256,14 @@ PIDControl
         //      Nothing.
         // 
         inline void PIDInputSet(float input) { this->input = input; }
+
+        // PID Input Get
+        // Description:
+        // Parameters:
+        // Returns:
+        //      input - The value the controller will work with.
+        // 
+        inline float PIDInputGet(void) { return this->input; }
         
         // 
         // PID Output Get

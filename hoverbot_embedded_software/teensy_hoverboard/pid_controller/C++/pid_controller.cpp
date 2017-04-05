@@ -37,7 +37,8 @@
 // Headers
 //*********************************************************************************
 #include "pid_controller.h"
-
+#include <logger_config.h>
+#include <logger.h>
 //*********************************************************************************
 // Macros and Globals
 //*********************************************************************************
@@ -72,6 +73,17 @@ PIDControl (float kp, float ki, float kd, float sampleTimeSeconds, float minOutp
     PIDOutputLimitsSet(minOutput, maxOutput);
     PIDTuningsSet(kp, ki, kd);
 }
+
+
+void PIDControl::
+PIDReset(void) 
+{
+    iTerm = 0.0f;
+    input = 0.0f;
+    lastInput = 0.0f;
+    output = 0.0f;
+    setpoint = 0.0f;
+} 
         
 bool PIDControl::
 PIDCompute() 
@@ -97,6 +109,7 @@ PIDCompute()
     
     // Run all the terms together to get the overall output
     output = alteredKp * error + iTerm - alteredKd * dInput;
+    LOG_INFO_LN("i=%f p=%f d=%f", iTerm, alteredKp*error, alteredKd*dInput); 
     
     // Bound the output
     output = CONSTRAIN(output, outMin, outMax);
@@ -104,6 +117,7 @@ PIDCompute()
     // Make the current input the former input
     lastInput = input;
     
+    LOG_INFO_LN("target=%f err=%f input=%f output=%f", setpoint, error, input, output);
     return true;
 }
      
