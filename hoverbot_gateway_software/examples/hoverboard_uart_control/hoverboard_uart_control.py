@@ -62,11 +62,15 @@ class HoverboardUART :
         self._speed = (0, 0) 
         self._motor_loop_monitor = MotorLoopMonitor() 
         self._motor_loop_monitor.add_graph('motor_1 PID debug', 'setpoint', 'm') 
-        self._motor_loop_monitor.add_line('motor_1 PID debug', 'input', 'y') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'filtered_input', 'y') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'input', 'c') 
         self._motor_loop_monitor.add_line('motor_1 PID debug', 'output', 'k') 
+        self._motor_loop_monitor.add_line('motor_1 PID debug', 'error', 'r') 
         self._motor_loop_monitor.add_graph('motor_2 PID debug', 'setpoint', 'm') 
-        self._motor_loop_monitor.add_line('motor_2 PID debug', 'input', 'y') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'filtered_input', 'y') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'input', 'c') 
         self._motor_loop_monitor.add_line('motor_2 PID debug', 'output', 'k') 
+        self._motor_loop_monitor.add_line('motor_2 PID debug', 'error', 'r') 
         # timecode set on hoverbot, on remote, use a relative timestamp 
         self._pid_debug_rel_tc = None
         self._uart_th = None 
@@ -98,16 +102,19 @@ class HoverboardUART :
                     if self._pid_debug_rel_tc is None :
                         self._pid_debug_rel_tc = new_data[0]
                     # Update of plot data must be done in main thread. If not it doesn't work!
-                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[2], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='setpoint')
-                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='input')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[2], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='filtered_input')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[5], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='input')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='setpoint')
                     self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[4], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='output')
+                    self._motor_loop_monitor.add_value('motor_{} PID debug'.format(new_data[1]), new_data[3]-new_data[2], tc=(new_data[0] - self._pid_debug_rel_tc)/1000, line='error')
                 graph_updated = True 
                 self._new_pid_data.clear()
                 
         # be sure UI updated out of any protected zone
-        if self._display_pid and graph_updated : 
+        if self._display_pid : 
             # Updating display can take some 100ms 
             self._motor_loop_monitor.update_display() 
+        self._motor_loop_monitor.update_display() 
         
         self._uart_term.update()
         
@@ -166,7 +173,8 @@ class HoverboardUART :
                 else:
                     self._uart_term.output_text(text, 'green') 
         except UnicodeDecodeError :
-            self._uart_term.output_line("bad byte received", 'error')
+            #logging.error("bad byte received")
+            pass 
             
         except OSError as e :
             self._uart_term.output_line("Error in stream... try to reconnect", 'error')
@@ -181,9 +189,11 @@ class HoverboardUART :
     ''' 
     def handle_hoverbot_data(self, data) :
         # Handle here all hoverboard specific commands 
-        cmd_index, data = self._detect_preamble(data)
+        logging.debug('handle data') 
+        cmd_index, data = self._detect_preamble(data) 
         
         if cmd_index != -1 : 
+            logging.debug('preamble detected') 
             data = self._detect_pid_log_cmd(data)  
         return data 
                 
@@ -244,10 +254,12 @@ class HoverboardUART :
             try:  
                 cmd_index = data.index(HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG)
                 if cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH <= len(data) :
-                    cmd_id,tc, motor_id, pid_setpoint, pid_input, pid_output  = (struct.unpack('<BIBfff', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH]))
+                    cmd_id,tc, motor_id, pid_input, pid_setpoint, pid_output, raw_input  = (struct.unpack('<BIBfffi', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH]))
+                    logging.info('debug pid frame : (tc={}, motor_id={}, pid_setpoint={}, pid_filtered_input={}, input={}, pid_output={})'.format(tc, motor_id, pid_setpoint, pid_input, raw_input, pid_output)) 
+                    
                     if self._display_pid : 
                         with self._pid_data_lock :
-                            self._new_pid_data.append((tc, motor_id+1, pid_setpoint, pid_input, pid_output)) 
+                            self._new_pid_data.append((tc, motor_id+1, pid_input, pid_setpoint, pid_output, raw_input)) 
                     # remove handled command from data
                     data = data[:cmd_index] + data[cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH:] 
                 else :
@@ -353,7 +365,7 @@ class HoverboardUART :
             
             
         class SlaveCmdLength(IntEnum):
-            PID_LOG_LENGTH   = 18 
+            PID_LOG_LENGTH   = 22 
         
         
         def __init__(self, outer, quit_commands=['q','quit','exit'], help_commands=['help','?', 'h']):
