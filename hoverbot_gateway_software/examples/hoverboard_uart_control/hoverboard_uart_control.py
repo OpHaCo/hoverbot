@@ -176,7 +176,7 @@ class HoverboardUART :
                 else:
                     self._uart_term.output_text(text, 'green') 
         except UnicodeDecodeError :
-            #logging.error("bad byte received")
+            logging.error("bad byte received")
             pass 
             
         except OSError as e :
@@ -197,7 +197,12 @@ class HoverboardUART :
         
         if cmd_index != -1 : 
             logging.debug('preamble detected') 
-            data = self._detect_pid_log_cmd(data)  
+            cmd_detected, data = self._detect_pid_log_cmd(data)  
+            if cmd_detected :
+                return data
+            cmd_detected, data = self._detect_encoder_log_cmd(data)
+            if cmd_detected :
+                return data
         return data 
                 
                 
@@ -237,23 +242,43 @@ class HoverboardUART :
         # try to find a cmd preamble
         preamble_index = -1 
         
-        # TODO : check incomplete preamble or multiple preamble  
-        for preamble_index in range(len(data) - preamble_len + 1) :
-            if HoverboardUART.HoverboardCmd.PREAMBLE == data[preamble_index:preamble_index + preamble_len] :
+        # TODO : check incomplete preamble or multiple preamble   
+        for preamble_id in range(len(data) - preamble_len + 1) :
+            if HoverboardUART.HoverboardCmd.PREAMBLE == data[preamble_id:preamble_id + preamble_len] :
+                preamble_index = preamble_id 
                 break 
         if preamble_index != -1 : 
             # remove preamble from data
             data = data[:preamble_index] + data[preamble_index + preamble_len:] 
         else :
             # check for incomplete preamble
+            # a frame will always have an incomplete preamble in its last bytes,
+            # so iterate over incomplete preamble (from biggest incomplete to preamble of length 1)
+            # and try to find it in last  data bytes
+            logging.debug("check incomplete preamble") 
             for incomp_preamble_index in range(preamble_len - 1) :
-                if HoverboardUART.HoverboardCmd.PREAMBLE[:preamble_len-1 - preamble_index] == data[len(data) - preamble_len + 1 + incomp_preamble_index:] :
-                    assert False, 'TODO incomplete preamble' 
+                if len(data) - preamble_len + 1 + incomp_preamble_index < 0 :
+                    continue
+                if HoverboardUART.HoverboardCmd.PREAMBLE[:preamble_len-1 - incomp_preamble_index] == data[len(data) - preamble_len + 1 + incomp_preamble_index:] :
+                    new_data = []
+                    # +2 for command id
+                    new_data = self._serial.read(incomp_preamble_index + 2)
+                    if new_data :
+                        data = data + new_data
+                        if data[len(data) - preamble_len - 1:len(data) - 1 ] == HoverboardUART.HoverboardCmd.PREAMBLE :
+                            # remove preamble from data
+                            data = data[len(data) - 1:]
+                            preamble_index = 0 
+                    else :
+                        raise Exception('unable to get missing preamble data') 
+                    
         return preamble_index, data 
 
 
     def _detect_pid_log_cmd(self, data) :
+        cmd_detected = False 
         while HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG in data :
+            cmd_detected = True 
             try:  
                 cmd_index = data.index(HoverboardUART.HoverboardCmd.SlaveCmdId.PID_LOG)
                 if cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.PID_LOG_LENGTH <= len(data) :
@@ -276,8 +301,34 @@ class HoverboardUART :
                 # no more command to handle 
                 pass
 
-        return data 
+        return cmd_detected, data 
+    
+    
+    def _detect_encoder_log_cmd(self, data) :
+        cmd_detected = False 
+        while HoverboardUART.HoverboardCmd.SlaveCmdId.ENCODER_LOG in data :
+            cmd_detected = True 
+            try:  
+                cmd_index = data.index(HoverboardUART.HoverboardCmd.SlaveCmdId.ENCODER_LOG)
+                if cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.ENCODER_LOG_LENGTH <= len(data) :
+                    cmd_id, tc, motor_1_ticks, motor_2_ticks = (struct.unpack('<BIii', data[cmd_index:cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.ENCODER_LOG_LENGTH]))
+                    logging.info('debug encoder frame : (tc={}, motor_1_ticks={}, motor_2_ticks={})'.format(tc, motor_1_ticks, motor_2_ticks)) 
+                    
+                    self._uart_term.output_line('{} < debug encoder frame : (tc={}, motor_1_ticks={}, motor_2_ticks={})'.format(HoverboardUART.getTime(), tc, motor_1_ticks, motor_2_ticks), 'green') 
+                    # remove handled command from data
+                    data = data[:cmd_index] + data[cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.ENCODER_LOG_LENGTH:] 
+                else :
+                    new_data = []
+                    new_data = self._serial.read(cmd_index + HoverboardUART.HoverboardCmd.SlaveCmdLength.ENCODER_LOG_LENGTH - len(data))
+                    if new_data :
+                        data = data + new_data
+                    else :
+                        time.sleep(0.01)
+            except ValueError :
+                # no more command to handle 
+                pass
 
+        return cmd_detected, data 
 
     def _start_term(self):
         #Update terminal 
@@ -361,14 +412,17 @@ class HoverboardUART :
             POWER_ON  = 1
             POWER_OFF = 2 
             STOP      = 3
+            GET_TICKS = 4 
             
             
         class SlaveCmdId(IntEnum):
-            PID_LOG   = 1 
+            PID_LOG       = 1 
+            ENCODER_LOG   = 2 
             
             
         class SlaveCmdLength(IntEnum):
             PID_LOG_LENGTH   = 24
+            ENCODER_LOG_LENGTH   = 13
         
         
         def __init__(self, outer, quit_commands=['q','quit','exit'], help_commands=['help','?', 'h']):
@@ -388,15 +442,16 @@ class HoverboardUART :
                 rampUpDur = int(args[2])
             except ValueError as e:
                raise Exception('Invalid argument given\n{}'.format(usage))
+            self._outer._uart_term.output_line(HoverboardUART.getTime() + ' > SET SPEED TO (speed1={}, speed2={} in {} ms)'.format(speed1, speed2, rampUpDur))
             ''' send command to hoverboard in LE'''
             self._outer.setSpeed(speed1, speed2, rampUpDur); 
-            return HoverboardUART.getTime() + ' > SET SPEED TO (speed1={}, speed2={} in {} ms)'.format(speed1, speed2, rampUpDur) 
         
         
         def do_power_on(self, *args):
             usage = 'USAGE poweron'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
+                    self._outer._uart_term.output_line(HoverboardUART.getTime() + ' > POWER_ON')
                     data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.POWER_ON)
                     self._outer._serial.write(data_to_send)
                     #TODO : get speed from hoverbot sensors
@@ -405,13 +460,13 @@ class HoverboardUART :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return HoverboardUART.getTime() + ' > POWER_ON'
 
 
         def do_power_off(self, *args):
             usage = 'USAGE poweroff'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
+                    self._outer._uart_term.output_line(HoverboardUART.getTime() + ' > POWER_OFF')
                     data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.POWER_OFF)
                     self._outer._serial.write(data_to_send)
                     #TODO : get speed from hoverbot sensors
@@ -420,32 +475,44 @@ class HoverboardUART :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return HoverboardUART.getTime() + ' POWER_OFF'
         
         
         def do_stop(self, *args):
             usage = 'USAGE stop'
             try :
                 if self._outer._serial and self._outer._serial.is_open :
+                    self._outer._uart_term.output_line(HoverboardUART.getTime() + ' > STOP')
                     data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.STOP)
                     self._outer._serial.write(data_to_send)
                 else :
                     raise Exception('cannot send command - uart not connected')
             except Exception as e:
                 raise Exception('cannot write command to uart - {}'.format(e))
-            return  HoverboardUART.getTime() + ' STOP'
         
         
         def do_start_keypad_control(self, *args):
             usage = 'USAGE : start keypad control using numeric keypad'
+            self._outer._uart_term.output_line(HoverboardUART.getTime() + ' NOW in manual keypad control')
             self._is_keypad_control = True
-            return 'NOW in manual keypad control'
         
         
         def do_stop_keypad_control(self, *args):
             usage = 'USAGE : stop keypad control using numeric keypad'
+            self._outer._uart_term.output_line(HoverboardUART.getTime() + ' EXITING manual keypad control')
             self._is_keypad_control = False
-            return 'EXITING manual keypad control'
+        
+        
+        def do_get_ticks(self, *args):
+            usage = 'USAGE get_ticks'
+            try :
+                if self._outer._serial and self._outer._serial.is_open :
+                    self._outer._uart_term.output_line(HoverboardUART.getTime() + ' > GET_TICKS')
+                    data_to_send = struct.pack('B', HoverboardUART.HoverboardCmd.MasterCmdId.GET_TICKS)
+                    self._outer._serial.write(data_to_send)
+                else :
+                    raise Exception('cannot send command - uart not connected')
+            except Exception as e:
+                raise Exception('cannot write command to uart - {}'.format(e))
 
 
 # ALL warnings must be removed as it will be output to stdout
@@ -464,7 +531,7 @@ def main(argv=None):
         formatter = logging.Formatter('%(asctime)s %(filename)s %(message)s')
         hdlr.setFormatter(formatter)
         logging.getLogger().addHandler(hdlr) 
-        logging.getLogger().setLevel(logging.INFO) 
+        logging.getLogger().setLevel(logging.DEBUG) 
         
         logging.info('Hoverbot uart control')
         
