@@ -77,34 +77,34 @@ class MotorLoopMonitor():
             curr_plot_line.set_xdata(np.append(curr_plot_line.get_xdata(), tc)) 
             curr_plot_line.set_ydata(np.append(curr_plot_line.get_ydata(), y)) 
         
-		# update x and ylim to show all points:
-        xmin = float("inf") 
-        xmax = -float("inf") 
-        ymin = float("inf") 
-        ymax = -float("inf") 
-        for curr_line_name in self._graphs[graph_name][1] : 
-            curr_line = self._graphs[graph_name][1][curr_line_name][0] 
-            if len(curr_line.get_xdata()) == 0 :
-                continue
-            
-            temp_val = curr_line.get_xdata().min() 
-            if temp_val < xmin :
-                xmin = temp_val 
+            # update x and ylim to show all points:
+            xmin = float("inf") 
+            xmax = -float("inf") 
+            ymin = float("inf") 
+            ymax = -float("inf") 
+            for curr_line_name in self._graphs[graph_name][1] : 
+                curr_line = self._graphs[graph_name][1][curr_line_name][0] 
+                if len(curr_line.get_xdata()) == 0 :
+                    continue
                 
-            temp_val = curr_line.get_xdata().max() 
-            if temp_val > xmax :
-                xmax =  temp_val 
-                
-            temp_val = curr_line.get_ydata().min() 
-            if curr_line.get_ydata().min() < ymin :
-                ymin = temp_val 
-                
-            temp_val = curr_line.get_ydata().max() 
-            if temp_val > ymax :
-                ymax =  temp_val 
-                
-        self._graphs[graph_name][0].set_xlim(xmin - 0.5, xmax + 0.5)
-        self._graphs[graph_name][0].set_ylim(ymin - 0.5, ymax + 0.5)  
+                temp_val = curr_line.get_xdata().min() 
+                if temp_val < xmin :
+                    xmin = temp_val 
+                    
+                temp_val = curr_line.get_xdata().max() 
+                if temp_val > xmax :
+                    xmax =  temp_val 
+                    
+                temp_val = curr_line.get_ydata().min() 
+                if curr_line.get_ydata().min() < ymin :
+                    ymin = temp_val 
+                    
+                temp_val = curr_line.get_ydata().max() 
+                if temp_val > ymax :
+                    ymax =  temp_val 
+                    
+            self._graphs[graph_name][0].set_xlim(xmin - 0.5, xmax + 0.5)
+            self._graphs[graph_name][0].set_ylim(ymin - 0.5, ymax + 0.5)  
         
 
     ''' 
