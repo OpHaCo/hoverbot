@@ -1,4 +1,7 @@
-# HOverBot : the most affordable smooth and silent two wheels drive control
+# HoverBot : the most affordable smooth and silent two wheels drive control
+
+**NOTE: This project is currently abandoned**  
+There is more active development over at https://github.com/NiklasFauth/hoverboard-firmware-hack. We already have a working custom firmware for the hoverboard mainboard, complete with ADC, PPM and Nunchuck control. (See the linked video in the description there)
 
 <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hoverbot_dog.jpg" width="300">
 <img src="https://raw.githubusercontent.com/OpHaCo/hoverbot/master/img/hoverbot_trash.jpg" width="320">
