@@ -183,6 +183,20 @@ After testing we can easily :
 But we cannot :
  * control speed of both wheels when it is rotating is same directions (not under load). **In this case, motors reach needed value but quickly speed up until max speed**
  
+ If you want to be able to rotate wheels in the same direction without the motherboard ramping speed to maximum - the phasing of  ***one*** of the motors and corresponding hall sensor can be rotated so that that wheel rotates in the oposite direction for a given input command compared to the other wheel. This means rotating both the power wires and the hall signals. For the standard colour codes a combination that works is (see photo):
+
+- motor power yellow -> motherboard power blue
+- motor power blue -> motherboard power yellow
+- motor power green -> motherboard power green
+
+- hall motor red -> hall motherboard red
+- hall motor yellow -> hall motherboard green
+- hall motor blue -> hall motherboard blue
+- hall motor green -> hall motherboard yellow
+- hall motor black -> hall motherboard black
+
+Whith this phasing rotation on one of the wheels, the ramp to maximum speed will occur if you try and drive both wheels in the opposite direction. 
+ 
 We can suppose, closed loop algorithm on motherboard does not support forward / backward mooving when it is not under load.
 
 ## Interfaces
